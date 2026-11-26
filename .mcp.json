@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "review-bot": {
+      "command": "node",
+      "args": ["tools/review-bot/server.mjs"]
+    }
+  }
+}
