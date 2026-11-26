@@ -1,0 +1,43 @@
+name: 要相談
+description: 人に決めてほしいことを書く（差分で見せられるものは、PR に「要相談」ラベルを付ける）
+title: "【要相談】"
+labels: ["要相談"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: 3行以内
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: 選択肢
+      description: 2〜3個
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: おすすめ
+      description: どれがよいかと、その理由
+    validations:
+      required: true
+  - type: input
+    id: deadline
+    attributes:
+      label: 返事がほしい期限
+      placeholder: "11/27（金）"
+    validations:
+      required: true
+  - type: textarea
+    id: waiting
+    attributes:
+      label: この決定を待っている作業
+      description: なければ空欄
+  - type: textarea
+    id: next
+    attributes:
+      label: 決まったらやること
+      description: なければ空欄
