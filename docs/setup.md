@@ -10,8 +10,7 @@
    git clone <このリポジトリのURL>
    ```
 
-4. Node.js 22 以上をインストールする（レビュー依頼ボットに使う）
-5. チームからもらった `.env` を `tools/review-bot/.env` に置く。エージェントへの登録の仕方は `tools/review-bot/README.md`
+4. 使う AI エージェントに、レビュー依頼ボットの URL（オンボーディング資料にある）を1回登録する。登録の仕方は `tools/review-bot/README.md`
 
 ## 技術スタック別
 

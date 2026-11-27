@@ -1,4 +1,4 @@
 # ネット上の版（worker.mjs）を Cloudflare Workers に置く設定。手順は README.md の「ネット上に置く」。
-name = "review-bot"
+name = "oyasumi-review-bot"
 main = "worker.mjs"
 compatibility_date = "2026-11-01"
