@@ -69,7 +69,7 @@ test('initialize と道具の一覧', async () => {
   proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   const list = await rpc(proc, 'tools/list', {});
   const names = list.result.tools.map((t) => t.name);
-  assert.deepEqual(names, ['request_review', 'read_replies', 'post_to_thread', 'close_review', 'list_reviews']);
+  assert.deepEqual(names, ['request_review', 'read_replies', 'post_to_thread', 'close_review', 'sync_issue', 'link_pr', 'list_reviews']);
   assert.match(list.result.tools[0].description, /iuti, noriakiumei/);
 });
 
@@ -136,11 +136,75 @@ test('知らない人だけを呼ぶとエラーになり、何も送らない',
   assert.equal(sent.length, before);
 });
 
+const REPO = 'https://github.com/noriakiumei/oyasumidopatec._2026p2hacks';
+let issueThread;
+
+test('Issue ができるとメンションなしでスレッドが立ち、タイトルが変わると名前も変わる', async () => {
+  const r = await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ画面', state: 'open', author: 'iuti', body: '<!-- テンプレ -->\n### やること\nガチャを引ける @everyone', action: 'opened' });
+  assert.equal(r.action, 'created');
+  issueThread = r.thread_id;
+  assert.equal(channels.get(issueThread).name, '#20 ガチャ画面');
+  const first = sent.at(-1);
+  assert.deepEqual(first.allowed_mentions, { parse: [] });
+  assert.ok(first.content.includes(`${REPO}/issues/20`));
+  assert.ok(!first.content.includes('テンプレ'));
+  const again = await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ画面', state: 'open', action: 'edited' });
+  assert.equal(again.action, 'none');
+  const renamed = await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャを引く画面', state: 'open', action: 'edited' });
+  assert.equal(renamed.action, 'renamed');
+  assert.equal(channels.get(issueThread).name, '#20 ガチャを引く画面');
+});
+
+test('PR をつなぐと名前に PR 番号が付き、PR の URL でもそのスレッドに届く', async () => {
+  const PR21 = `${REPO}/pull/21`;
+  const l = await call('link_pr', { url: PR21, title: 'ガチャ画面を作る', author: 'iuti', issues: ['20', '999'] });
+  assert.deepEqual(l.linked.map((x) => x.thread_id), [issueThread]);
+  assert.equal(channels.get(issueThread).name, '#20 ガチャを引く画面（PR #21）');
+  assert.match(sent.at(-1).content, /PR #21 ができたよ/);
+  const before = sent.length;
+  await call('link_pr', { url: PR21, issues: ['20'] }); // 2回つないでも書かない
+  assert.equal(sent.length, before);
+  const r = await call('request_review', { to: ['iuti'], title: 'ガチャ画面を作る', url: PR21, message: '見てね' });
+  assert.equal(r.created, false);
+  assert.equal(r.thread_id, issueThread);
+  assert.match(sent.at(-1).content, /^<@111> レビューをお願い！/);
+  // タイトルが変わっても PR 番号は残る
+  await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ', state: 'open', action: 'edited' });
+  assert.equal(channels.get(issueThread).name, '#20 ガチャ（PR #21）');
+  const replies = await call('read_replies', { thread: PR21 });
+  assert.equal(replies.thread_id, issueThread);
+});
+
+test('PR を issue 付きで頼むと、その場で Issue のスレッドにつなぐ。Issue の無い PR は「PR #番号」のスレッドになる', async () => {
+  const r = await call('request_review', { to: ['iuti'], title: '二つ目', url: `${REPO}/pull/22`, issue: `${REPO}/issues/20`, message: 'm' });
+  assert.equal(r.thread_id, issueThread);
+  assert.equal(channels.get(issueThread).name, '#20 ガチャ（PR #21, #22）');
+  const n = await call('request_review', { to: ['iuti'], title: 'docs だけ', url: `${REPO}/pull/23`, message: 'm' });
+  assert.equal(n.created, true);
+  assert.equal(channels.get(n.thread_id).name, 'PR #23 docs だけ');
+});
+
+test('Issue を閉じるとスレッドも閉じ、開き直すと開く', async () => {
+  const c = await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ', state: 'closed', action: 'closed' });
+  assert.equal(c.action, 'closed');
+  assert.equal(channels.get(issueThread).thread_metadata.archived, true);
+  const before = sent.length;
+  const c2 = await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ', state: 'closed', action: 'edited' });
+  assert.equal(c2.action, 'none');
+  assert.equal(sent.length, before);
+  const o = await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ', state: 'open', action: 'reopened' });
+  assert.equal(o.action, 'reopened');
+  assert.equal(channels.get(issueThread).thread_metadata.archived, false);
+  assert.match(sent.at(-1).content, /開き直された/);
+  const none = await call('sync_issue', { url: `${REPO}/issues/77`, title: '閉じたまま', state: 'closed' });
+  assert.equal(none.action, 'none');
+});
+
 test('設定が無いときは、道具がエラーで設定の仕方を返す', async () => {
   const p = start({});
   const r = await call('list_reviews', {}, p);
   assert.match(r.error, /DISCORD_BOT_TOKEN と DISCORD_REVIEW_CHANNEL_ID が無い/);
   const list = await rpc(p, 'tools/list', {});
-  assert.equal(list.result.tools.length, 5);
+  assert.equal(list.result.tools.length, 7);
   p.kill();
 });

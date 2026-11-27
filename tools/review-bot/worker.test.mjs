@@ -46,7 +46,7 @@ test('URL の鍵で initialize と道具の一覧が返る', async () => {
   assert.equal(init.result.serverInfo.name, 'review-bot');
   assert.equal(init.result.protocolVersion, '2025-06-18');
   const list = await (await post(`/mcp/${KEY}`, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
-  assert.equal(list.result.tools.length, 5);
+  assert.equal(list.result.tools.length, 7);
   assert.match(list.result.tools[0].description, /iuti/);
 });
 

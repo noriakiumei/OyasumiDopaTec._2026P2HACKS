@@ -1,6 +1,6 @@
 # レビュー依頼ボット（MCP サーバー）
 
-AI が人の確認を必要としたとき、Discord でその人をメンションしてレビュー依頼を送り、その件のスレッドを開く。スレッドの返信は AI が読みに来る。
+Issue ごとに Discord のスレッドを立て、その Issue の相談・PR・レビュー依頼をそこに集める。AI が人の確認を必要としたときは、そのスレッドで本人をメンションする。スレッドの返信は AI が読みに来る。
 Claude でも Codex でも、MCP が使えるエージェントなら同じように使える。
 
 ボットはネット上（Cloudflare Workers）に1つだけ置く。トークンはそこにだけあるので、メンバーは **URL を1回登録するだけ** で使える。
@@ -9,13 +9,28 @@ Claude でも Codex でも、MCP が使えるエージェントなら同じよ�
 
 | 道具 | すること |
 |---|---|
-| `request_review` | 呼ぶ人（GitHub のログイン名か `all`）・PR や Issue の URL・試し方と見てほしいことを渡すと、メンション付きでスレッドを開く。同じ URL のスレッドがあれば、そこに書く |
+| `request_review` | 呼ぶ人（GitHub のログイン名か `all`）・PR や Issue の URL・試し方と見てほしいことを渡すと、その件のスレッドでメンションする。PR なら、つながっている Issue のスレッドに書く。スレッドが無ければ立てる |
 | `read_replies` | スレッドの人の返信を古い順に読む。`after` に前回の `last_id` を渡すと続きだけ |
 | `post_to_thread` | スレッドに書く（直したことの報告など）。`mention` で通知もできる |
 | `close_review` | 一言書いてスレッドを閉じる |
-| `list_reviews` | 開いているレビュー依頼スレッドの一覧 |
+| `list_reviews` | 開いているスレッドの一覧 |
+| `sync_issue` | Issue のスレッドを Issue に合わせる（無ければ立てる・名前を変える・閉じる・開く）。ふだんは GitHub Actions が呼ぶ |
+| `link_pr` | PR を Issue のスレッドにつなぐ。ふだんは GitHub Actions が呼ぶ |
 
 スレッドは、スレッド ID・スレッドの URL・PR や Issue の URL のどれでも指定できる。
+
+## Issue ごとのスレッド
+
+`.github/workflows/nemu.yml` が、Issue と PR の動きに合わせて NEMU を呼ぶ。
+
+- Issue が開く → `#12 タイトル` のスレッドが立つ（メンションなし）。タイトルが変わると名前も変わり、Issue を閉じると閉じ、開き直すと開く
+- PR が開く → 本文の `Closes #12` から Issue のスレッドを見つけ、PR ができたことを書き、名前を `#12 タイトル（PR #13）` にする。以後 PR の URL でもこのスレッドが見つかる
+- Issue の無い PR（docs だけの変更など）は、`request_review` のときに `PR #13 タイトル` のスレッドが立つ
+- Actions の「NEMU（Issue のスレッド）」を手動で動かすと、開いている Issue のスレッドをまとめて立てる
+
+使うには、リポジトリのシークレット `NEMU_URL` に NEMU の URL（鍵入り）を入れる（Settings → Secrets and variables → Actions。リポジトリの管理者だけができる）。無いあいだは何もしない。
+
+Discord ではスレッドを別のチャンネルに移せないので、1つのフォーラムで扱う。
 
 ## 各自のエージェントで使う
 

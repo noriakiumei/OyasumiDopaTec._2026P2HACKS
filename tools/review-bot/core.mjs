@@ -74,14 +74,58 @@ async function threads(cfg) {
   return [...active.threads.filter((t) => t.parent_id === cfg.channelId), ...archived.threads];
 }
 
-// PR・Issue の URL から、その件のスレッドを探す。依頼文の2行目に URL を書いてあるので、それで照らす
+// GitHub の URL から Issue・PR の番号を読む
+function githubRef(url) {
+  const m = String(url).match(/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/(\d+)/);
+  return m ? { kind: m[1] === 'pull' ? 'pr' : 'issue', number: Number(m[2]) } : null;
+}
+
+// スレッド名の決まり：Issue は「#12 タイトル」、PR がつながると「#12 タイトル（PR #13, #14）」、Issue の無い PR は「PR #13 タイトル」
+const PR_SUFFIX = /（PR (#\d+(?:, #\d+)*)）$/;
+const prsInName = (name) => (name.match(PR_SUFFIX)?.[1].match(/\d+/g) || []).map(Number);
+const baseName = (name) => name.replace(PR_SUFFIX, '');
+function nameFor(base, prs) {
+  const suffix = prs.length ? `（PR ${prs.map((n) => `#${n}`).join(', ')}）` : '';
+  return clip(base, 100 - suffix.length) + suffix;
+}
+function nameMatches(name, ref) {
+  if (ref.kind === 'issue') return new RegExp(`^#${ref.number}(\\s|（|$)`).test(name);
+  return new RegExp(`^PR #${ref.number}(\\s|$)`).test(name) || prsInName(name).includes(ref.number);
+}
+
+const STARTER_SCAN_LIMIT = 30; // Workers の1回あたりの外部リクエスト数（無料枠は50）に収める
+
+// PR・Issue の URL から、その件のスレッドを探す。まずスレッド名で、無ければ最初のメッセージに書いた URL で照らす
 async function findThreadByUrl(cfg, url) {
-  for (const t of await threads(cfg)) {
+  const list = await threads(cfg);
+  const ref = githubRef(url);
+  if (ref) {
+    const t = list.find((x) => nameMatches(x.name, ref));
+    if (t) return t;
+  }
+  for (const t of list.slice(0, STARTER_SCAN_LIMIT)) {
     const first = await starter(cfg, t);
-    if (first?.content.split('\n').some((line) => line.trim() === url)) return t;
+    if (first?.content.split('\n').some((line) => line.split(/\s+/).includes(url))) return t;
   }
   return null;
 }
+
+// Issue 番号からスレッドを探す（スレッド名だけで探す）
+async function findIssueThread(cfg, number) {
+  return (await threads(cfg)).find((t) => nameMatches(t.name, { kind: 'issue', number })) || null;
+}
+
+async function createThread(cfg, name, message) {
+  const ch = await channel(cfg);
+  if (ch.type === FORUM) {
+    return discord(cfg, 'POST', `/channels/${cfg.channelId}/threads`, { name: clip(name, 100), auto_archive_duration: 10080, message });
+  }
+  const msg = await discord(cfg, 'POST', `/channels/${cfg.channelId}/messages`, message);
+  return discord(cfg, 'POST', `/channels/${cfg.channelId}/messages/${msg.id}/threads`, { name: clip(name, 100), auto_archive_duration: 10080 });
+}
+
+const say = (cfg, thread, content, allowed_mentions = { parse: [] }) =>
+  discord(cfg, 'POST', `/channels/${thread.id}/messages`, { content: clip(content, 2000), allowed_mentions });
 
 // thread 引数は、スレッド ID・Discord のスレッド URL・PR や Issue の URL のどれでもよい
 async function resolveThread(cfg, ref) {
@@ -130,12 +174,45 @@ export function requestText({ ids, kind, title, url, message, from }) {
   );
 }
 
+function issueText(number, { url, title, author, body }) {
+  const excerpt = clip(
+    (body || '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim(),
+    600,
+  );
+  return clip(
+    [`Issue #${number}${author ? `（${author} より）` : ''}`, url, '', `**${title}**`, ...(excerpt ? ['', excerpt] : []), '', 'この Issue の相談・感想・レビュー依頼は、このスレッドにまとめるよ。AI も読みに来るよ。'].join('\n'),
+    2000,
+  );
+}
+
+// PR を Issue のスレッドにつなぐ。つないだスレッドを返す
+async function linkPr(cfg, { number, url, title, author, issues }) {
+  const linked = [];
+  const numbers = [...new Set(issues.map((x) => Number(String(x).match(/(\d+)\D*$/)?.[1])).filter(Boolean))];
+  for (const n of numbers) {
+    const thread = await findIssueThread(cfg, n);
+    if (!thread) continue;
+    const prs = prsInName(thread.name);
+    if (!prs.includes(number)) {
+      await unarchive(cfg, thread);
+      await say(cfg, thread, [`PR #${number} ができたよ${author ? `（${author}）` : ''}${title ? `：${title}` : ''}`, url].join('\n'));
+      await discord(cfg, 'PATCH', `/channels/${thread.id}`, { name: nameFor(baseName(thread.name), [...prs, number]) });
+      thread.name = nameFor(baseName(thread.name), [...prs, number]);
+    }
+    linked.push(thread);
+  }
+  return linked;
+}
+
 const tools = {
   request_review: {
     description: (cfg) =>
       [
         '人の確認が要るとき（マージ前のレビュー、要相談の判断）に、Discord で本人をメンションしてレビュー依頼を送り、その件のスレッドを開く。',
-        '同じ url の依頼スレッドが既にあれば、新しく作らずそこに書く（「直したので見てほしい」など）。',
+        'その件のスレッドが既にあれば（Issue のスレッド、PR がつながった Issue のスレッドを含む）、新しく作らずそこに書く（「直したので見てほしい」など）。',
         '通知が多いと無視されるので、確認が本当に要るときだけ使う。小さな質問は PR・Issue のコメントで聞く。',
         '送ったら、返ってきた thread_url を PR か Issue のコメントに書いておく。',
         `呼べる人（GitHub のログイン名）: ${cfg ? Object.keys(cfg.members).join(', ') || '（未設定）' : '（未設定）'}。全員なら "all"。`,
@@ -144,8 +221,9 @@ const tools = {
       type: 'object',
       properties: {
         to: { type: 'array', items: { type: 'string' }, description: '呼ぶ人の GitHub ログイン名。全員なら ["all"]' },
-        title: { type: 'string', description: '何の確認か。スレッドの名前になる（例：PR #12 ログイン画面）' },
-        url: { type: 'string', description: 'PR か Issue の URL。スレッドを探す鍵にもなる' },
+        title: { type: 'string', description: '何の確認か。新しくスレッドを作るときの名前になる（例：ログイン画面）' },
+        url: { type: 'string', description: 'PR か Issue の URL。スレッドを探す鍵にもなる。PR なら、つながっている Issue のスレッドに書く' },
+        issue: { type: 'string', description: 'PR が対応する Issue の番号か URL（任意）。PR がまだ Issue のスレッドにつながっていなければ、ここでつなぐ' },
         message: { type: 'string', description: '試し方（3手以内）と、見てほしいこと（1〜3点）。返事がほしい期限があれば書く' },
         kind: { type: 'string', enum: ['review', 'consult'], description: 'review = レビュー依頼（既定）、consult = 相談' },
         from: { type: 'string', description: '頼んでいる人（AI を動かしている人の名前など）' },
@@ -158,21 +236,18 @@ const tools = {
       const content = requestText({ ids, kind: a.kind, title: a.title, url: a.url, message: a.message, from: a.from });
       const allowed_mentions = { users: ids };
       const ch = await channel(cfg);
+      const ref = githubRef(a.url);
       let thread = await findThreadByUrl(cfg, a.url);
+      if (!thread && ref?.kind === 'pr' && a.issue) {
+        thread = await linkPr(cfg, { number: ref.number, url: a.url, issues: [a.issue] }).then((r) => r[0] || null);
+      }
       let created = false;
       if (thread) {
         await unarchive(cfg, thread);
-        await discord(cfg, 'POST', `/channels/${thread.id}/messages`, { content, allowed_mentions });
-      } else if (ch.type === FORUM) {
-        thread = await discord(cfg, 'POST', `/channels/${cfg.channelId}/threads`, {
-          name: clip(a.title, 100),
-          auto_archive_duration: 10080,
-          message: { content, allowed_mentions },
-        });
-        created = true;
+        await say(cfg, thread, content, allowed_mentions);
       } else {
-        const msg = await discord(cfg, 'POST', `/channels/${cfg.channelId}/messages`, { content, allowed_mentions });
-        thread = await discord(cfg, 'POST', `/channels/${cfg.channelId}/messages/${msg.id}/threads`, { name: clip(a.title, 100), auto_archive_duration: 10080 });
+        const name = ref && !new RegExp(`#${ref.number}\\b`).test(a.title) ? `${ref.kind === 'pr' ? 'PR ' : ''}#${ref.number} ${a.title}` : a.title;
+        thread = await createThread(cfg, name, { content, allowed_mentions });
         created = true;
       }
       return {
@@ -259,6 +334,78 @@ const tools = {
     },
   },
 
+  sync_issue: {
+    description: () =>
+      'Issue のスレッドを Issue に合わせる。無ければ立て（メンションなし）、タイトルが変われば名前を変え、Issue が閉じたら閉じ、開き直したら開く。ふだんは GitHub Actions が呼ぶ。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Issue の URL' },
+        title: { type: 'string', description: 'Issue のタイトル' },
+        state: { type: 'string', enum: ['open', 'closed'], description: 'Issue の状態' },
+        author: { type: 'string', description: 'Issue を作った人の GitHub ログイン名' },
+        body: { type: 'string', description: 'Issue の本文（最初のほうだけ載せる）' },
+        action: { type: 'string', description: 'GitHub のイベントの action（opened・edited・closed・reopened）' },
+      },
+      required: ['url', 'title', 'state'],
+    },
+    async run(cfg, a) {
+      const ref = githubRef(a.url);
+      if (ref?.kind !== 'issue') throw new Error(`Issue の URL ではない: ${a.url}`);
+      const ch = await channel(cfg);
+      let thread = await findIssueThread(cfg, ref.number);
+      const base = `#${ref.number} ${a.title}`;
+      if (!thread) {
+        if (a.state === 'closed') return { thread_id: null, action: 'none' };
+        thread = await createThread(cfg, base, { content: issueText(ref.number, a), allowed_mentions: { parse: [] } });
+        return { thread_id: thread.id, thread_url: threadUrl(ch.guild_id, thread.id), action: 'created' };
+      }
+      const actions = [];
+      const wasArchived = Boolean(thread.thread_metadata?.archived);
+      const name = nameFor(base, prsInName(thread.name));
+      if (thread.name !== name) {
+        await unarchive(cfg, thread); // 閉じたスレッドは名前を変えられない
+        await discord(cfg, 'PATCH', `/channels/${thread.id}`, { name });
+        actions.push('renamed');
+      }
+      if (a.state === 'closed') {
+        if (!wasArchived) {
+          await say(cfg, thread, 'Issue が閉じられたので、このスレッドも閉じるね。');
+          actions.push('closed');
+        }
+        if (!wasArchived || actions.includes('renamed')) await discord(cfg, 'PATCH', `/channels/${thread.id}`, { archived: true });
+      } else if (wasArchived) {
+        // 書き込みが7日ないと Discord が自動で閉じるので、開き直しの知らせは Issue が開き直されたときだけ書く
+        if (!actions.includes('renamed')) await unarchive(cfg, thread);
+        if (a.action === 'reopened') await say(cfg, thread, 'Issue が開き直されたよ。');
+        actions.push('reopened');
+      }
+      return { thread_id: thread.id, thread_url: threadUrl(ch.guild_id, thread.id), action: actions.join(',') || 'none' };
+    },
+  },
+
+  link_pr: {
+    description: () =>
+      'PR を、対応する Issue のスレッドにつなぐ。スレッド名に PR 番号を足し、PR ができたことを書く。以後 PR の URL でもそのスレッドが見つかる。ふだんは GitHub Actions が呼ぶ。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'PR の URL' },
+        title: { type: 'string', description: 'PR のタイトル' },
+        author: { type: 'string', description: 'PR を作った人の GitHub ログイン名' },
+        issues: { type: 'array', items: { type: 'string' }, description: 'つなぐ Issue の番号か URL（本文の Closes #番号 など）' },
+      },
+      required: ['url', 'issues'],
+    },
+    async run(cfg, a) {
+      const ref = githubRef(a.url);
+      if (ref?.kind !== 'pr') throw new Error(`PR の URL ではない: ${a.url}`);
+      const ch = await channel(cfg);
+      const linked = await linkPr(cfg, { number: ref.number, url: a.url, title: a.title, author: a.author, issues: a.issues || [] });
+      return { linked: linked.map((t) => ({ thread_id: t.id, thread_url: threadUrl(ch.guild_id, t.id) })) };
+    },
+  },
+
   list_reviews: {
     description: () => '開いているレビュー依頼スレッドの一覧。どの PR・Issue の件か（url）と、最後の投稿の ID を返す。',
     inputSchema: { type: 'object', properties: {} },
@@ -285,6 +432,7 @@ const tools = {
 
 const INSTRUCTIONS =
   '人の確認が要るときに、Discord でその人に直接知らせて、返事を受け取るための道具。' +
+  'Issue ごとに Discord のスレッドがあり（GitHub Actions が立てる）、PR とレビュー依頼もそのスレッドに集まる。' +
   'マージ前のレビューや「要相談」の判断のように、人が見ないと先に進めないときだけ request_review を使う。' +
   '作業を始めるときは list_reviews と read_replies で新しい返信を確かめ、感想は Issue にするか PR で直す。';
 
