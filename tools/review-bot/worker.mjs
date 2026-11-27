@@ -16,22 +16,41 @@ function sameKey(a, b) {
   return diff === 0;
 }
 
+// 貼るときに混ざりやすい空白・改行・<> を除く
+const cleanKey = (k) => (k || '').trim().replace(/^<|>$/g, '').trim();
+
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const m = url.pathname.match(/^\/mcp(?:\/([^/]+))?\/?$/);
-    if (!m) {
+    if (url.pathname === '/') {
       return new Response('review-bot（レビュー依頼ボット）は動いているよ。MCP は /mcp/<鍵> で使ってね。\n', {
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
       });
     }
+    // /.well-known/oauth-* など。200 を返すと、クライアントが OAuth のサインインが要ると勘違いする
+    const m = url.pathname.match(/^\/mcp(?:\/([^/]+))?\/?$/);
+    if (!m) return json({ error: 'not found' }, 404);
 
     const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
     if (!env.ACCESS_KEY) return json({ error: 'ACCESS_KEY が設定されていない' }, 500);
-    if (!sameKey(m[1] || bearer, env.ACCESS_KEY)) return json({ error: '鍵が違う' }, 401);
+    const given = cleanKey(m[1] ? safeDecode(m[1]) : bearer);
+    const expected = cleanKey(env.ACCESS_KEY);
+    if (!sameKey(given, expected)) {
+      // 鍵そのものは出さない。長さだけ Cloudflare のログに残して、貼り間違いを見つけやすくする
+      console.log(`鍵が違う：受け取った長さ ${given.length}、設定の長さ ${expected.length}`);
+      return json({ error: '鍵が違う' }, 401);
+    }
 
     if (request.method === 'GET') return new Response(null, { status: 405, headers: { Allow: 'POST' } }); // SSE は使わない
     if (request.method === 'DELETE') return new Response(null, { status: 204 });

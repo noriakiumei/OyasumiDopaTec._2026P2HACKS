@@ -50,6 +50,17 @@ test('URL の鍵で initialize と道具の一覧が返る', async () => {
   assert.match(list.result.tools[0].description, /iuti/);
 });
 
+test('鍵の前後の空白や改行は無視する。ほかのパスは 404（OAuth を探されても勘違いさせない）', async () => {
+  const res = await worker.fetch(
+    new Request(`https://review-bot.example/mcp/${KEY}`, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) }),
+    { ...env, ACCESS_KEY: ` ${KEY}\n` },
+  );
+  assert.equal(res.status, 200);
+  const wk = await worker.fetch(new Request('https://review-bot.example/.well-known/oauth-protected-resource'), env);
+  assert.equal(wk.status, 404);
+  assert.equal((await worker.fetch(new Request('https://review-bot.example/'), env)).status, 200);
+});
+
 test('通知だけなら 202 で本文なし、GET は 405', async () => {
   const res = await post(`/mcp/${KEY}`, { jsonrpc: '2.0', method: 'notifications/initialized' });
   assert.equal(res.status, 202);
