@@ -134,7 +134,7 @@ test('メッセージを「Issue にする」と、AI が整えて起票し、�
   // みんなには一言だけ（プレビューなしのリンク、メンションなし）
   const post = webhookPosts.at(-1);
   assert.equal(post.token, 'tok-msg');
-  assert.equal(post.body.content, `📝 梅 の感想から Issue を立てたよ：[#40 ${draft.title}](<https://github.com/noriakiumei/OyasumiDopaTec._2026P2HACKS/issues/40>)`);
+  assert.equal(post.body.content, `📝 梅 の感想から Issue 立てたよ！⚡ [#40 ${draft.title}](<https://github.com/noriakiumei/OyasumiDopaTec._2026P2HACKS/issues/40>)`);
   assert.equal(post.body.flags, undefined);
   assert.deepEqual(post.body.allowed_mentions, { parse: [] });
 });
