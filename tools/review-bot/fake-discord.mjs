@@ -73,9 +73,17 @@ export const discord = createServer(async (req, res) => {
       sent.push(msg);
       return send(200, msg);
     }
+    const limit = Number(url.searchParams.get('limit') || 50);
+    const all = messages.get(m[1]) || [];
+    const around = url.searchParams.get('around');
+    if (around) {
+      const at = Math.max(0, all.findIndex((x) => x.id === around));
+      const from = Math.max(0, at - Math.floor(limit / 2));
+      return send(200, all.slice(from, from + limit).reverse());
+    }
     const afterId = BigInt(url.searchParams.get('after') || '0');
-    const list = (messages.get(m[1]) || []).filter((x) => BigInt(x.id) > afterId).reverse(); // 新しい順で返す
-    return send(200, list.slice(0, Number(url.searchParams.get('limit') || 50)));
+    const list = all.filter((x) => BigInt(x.id) > afterId).reverse(); // 新しい順で返す
+    return send(200, list.slice(0, limit));
   }
   if ((m = p.match(/^\/channels\/(\d+)$/))) {
     const c = channels.get(m[1]);
