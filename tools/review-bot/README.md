@@ -16,6 +16,7 @@ Claude でも Codex でも、MCP が使えるエージェントなら同じよ�
 | `list_reviews` | 開いているスレッドの一覧 |
 | `sync_issue` | Issue のスレッドを Issue に合わせる（無ければ立てる・名前を変える・閉じる・開く）。ふだんは GitHub Actions が呼ぶ |
 | `link_pr` | PR を Issue のスレッドにつなぐ。ふだんは GitHub Actions が呼ぶ |
+| `post_digest` | チーム全体へのお知らせ（ダイジェスト・見回りの結果）を書く。文は呼ぶ側（Dot など）が作る。`DISCORD_DIGEST_CHANNEL_ID` があればそのチャンネル、無ければフォーラムの「ダイジェスト」スレッド |
 
 スレッドは、スレッド ID・スレッドの URL・PR や Issue の URL のどれでも指定できる。
 
@@ -35,6 +36,8 @@ Worker に `ANTHROPIC_API_KEY` を入れると使える。無ければ AI の機
 - **レビュー依頼の要約**：`request_review` に PR の URL を渡すと、差分を読んで「変わったこと・見てほしいところ・試し方」を3行にして依頼文の先頭に添える。要約に失敗しても依頼は届く（結果の `summary_error` に理由）
 
 - **感想 → Issue**：Discord のメッセージを右クリック →「アプリ」→「**Issue にする**」か、`/issue 内容:…` で、AI がタイトル・本文（何が起きたか・再現手順など）・ラベルに整えて Issue にする。前後の会話（30 件）と、スレッドがつながっている Issue・PR も読むので、「これ」「さっきの」のような書き方でも意味を補う。結果（下書きや似た Issue）は押した人だけに見え、起票したときだけ、みんなに「〇〇 の感想から Issue を立てたよ」と一言出す。元のメッセージへのリンクと書いた人を本文に残し、似た Issue が開いていれば知らせる。`GITHUB_TOKEN` があれば直接起票し、無ければ作成ページのボタンと本文を返す（下の「Discord のコマンド」の設定が要る）
+
+朝夕のダイジェストと見回りは、ChatGPT の Dot・Codex が NEMU の道具で書く。つなぎ方と頼み方は [dot.md](dot.md)。
 
 使ったトークン数は、呼ぶたびに Cloudflare のログ（Workers → oyasumi-review-bot → Logs）に出る。
 
@@ -87,6 +90,7 @@ AI の機能を使うときは、さらに次を入れる。
 | `LLM_MODEL_FAST`・`LLM_MODEL_SMART` | （任意）モデルを変えるとき。既定は `claude-haiku-5-5`・`claude-opus-5-5` |
 | `GITHUB_TOKEN` | （任意）感想を直接 Issue にするときと、GitHub を読むときに使う。読むだけなら無くても public なリポジトリは読める |
 | `DISCORD_PUBLIC_KEY` | Discord のコマンドを受けるとき（下の「Discord のコマンド」） |
+| `DISCORD_DIGEST_CHANNEL_ID` | （任意）ダイジェストを書くチャンネル。無ければフォーラムに「ダイジェスト」スレッドを作る |
 | `GITHUB_REPO` | （任意）Issue を作るリポジトリ。既定は `noriakiumei/OyasumiDopaTec._2026P2HACKS` |
 
 URL は `https://<Worker の名前>.<アカウント>.workers.dev/mcp/<ACCESS_KEY>`。今の Worker の名前は `oyasumi-review-bot`（`wrangler.toml` と同じ）。鍵入りの URL はオンボーディング資料に書く。

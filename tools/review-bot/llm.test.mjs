@@ -5,7 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handle } from './core.mjs';
-import { FORUM_ID, sent, discord } from './fake-discord.mjs';
+import { FORUM_ID, sent, channels, messages, discord } from './fake-discord.mjs';
 import { anthropic, githubApi, llm, llmRequests, ghRoutes, ghRequests, listen } from './fake-apis.mjs';
 
 let env;
@@ -98,4 +98,34 @@ test('API キーが無いとき・summarize: false のとき・PR でないと�
   await call('request_review', { to: ['iuti'], title: 'ガチャ', url: `${REPO}/pull/34`, message: 'b', summarize: false });
   await call('request_review', { to: ['iuti'], title: '相談', url: `${REPO}/issues/5`, message: 'c', kind: 'consult' });
   assert.equal(llmRequests.length, before);
+});
+
+// ---------- #23 ダイジェストの投稿（文は Dot などが作る） ----------
+
+test('ダイジェストは AI を使わず、フォーラムの「ダイジェスト」スレッドに書く。@ログイン名は名前になり、通知はしない', async () => {
+  const before = llmRequests.length;
+  const r = await call('post_digest', { title: '11/28 朝のダイジェスト', content: '**進んだこと**\n・#31 ガチャ（@iuti）がマージされた\n・`@iuti` はそのまま、@someone も' });
+  assert.equal(r.posted, true);
+  assert.equal(llmRequests.length, before);
+  const thread = [...channels.values()].find((c) => c.name === 'ダイジェスト');
+  assert.ok(thread);
+  const post = messages.get(thread.id).at(-1);
+  assert.equal(post.content, '📰 **11/28 朝のダイジェスト**\n**進んだこと**\n・#31 ガチャ（<@111>）がマージされた\n・`@iuti` はそのまま、@someone も');
+  assert.deepEqual(post.allowed_mentions, { parse: [] });
+  assert.match(r.url, new RegExp(`/${thread.id}/${post.id}$`));
+
+  // 2回目も同じスレッド（閉じていても開いて書く）
+  thread.thread_metadata.archived = true;
+  await call('post_digest', { content: '夕方の分' });
+  assert.equal([...channels.values()].filter((c) => c.name === 'ダイジェスト').length, 1);
+  assert.equal(messages.get(thread.id).at(-1).content, '夕方の分');
+});
+
+test('DISCORD_DIGEST_CHANNEL_ID があればそのチャンネルに書く。空・長すぎる文はエラー', async () => {
+  channels.set('500', { id: '500', type: 0, guild_id: '1', name: 'ダイジェスト' });
+  const e = { ...env, DISCORD_DIGEST_CHANNEL_ID: '500' };
+  await call('post_digest', { content: 'チャンネルへ' }, e);
+  assert.equal(messages.get('500').at(-1).content, 'チャンネルへ');
+  assert.match((await call('post_digest', { content: ' ' }, e)).error, /空/);
+  assert.match((await call('post_digest', { content: 'あ'.repeat(2001) }, e)).error, /長すぎる（2001 文字）/);
 });

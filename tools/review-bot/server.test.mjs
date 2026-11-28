@@ -69,7 +69,7 @@ test('initialize と道具の一覧', async () => {
   proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   const list = await rpc(proc, 'tools/list', {});
   const names = list.result.tools.map((t) => t.name);
-  assert.deepEqual(names, ['request_review', 'read_replies', 'post_to_thread', 'close_review', 'sync_issue', 'link_pr', 'list_reviews']);
+  assert.deepEqual(names, ['request_review', 'read_replies', 'post_to_thread', 'close_review', 'sync_issue', 'link_pr', 'post_digest', 'list_reviews']);
   assert.match(list.result.tools[0].description, /iuti, noriakiumei/);
 });
 
@@ -205,6 +205,6 @@ test('設定が無いときは、道具がエラーで設定の仕方を返す',
   const r = await call('list_reviews', {}, p);
   assert.match(r.error, /DISCORD_BOT_TOKEN と DISCORD_REVIEW_CHANNEL_ID が無い/);
   const list = await rpc(p, 'tools/list', {});
-  assert.equal(list.result.tools.length, 7);
+  assert.equal(list.result.tools.length, 8);
   p.kill();
 });
