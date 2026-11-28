@@ -1,9 +1,8 @@
 // Discord に雑に書いた感想・不具合を、AI が整えて Issue にする（#22）。
 
 import { ask, cut } from './llm.mjs';
-import { github } from './github.mjs';
+import { github, DEFAULT_REPO } from './github.mjs';
 
-export const DEFAULT_REPO = 'noriakiumei/OyasumiDopaTec._2026P2HACKS';
 const LABELS = { 不具合: '不具合', 機能: '機能', ドキュメント: 'ドキュメント' };
 
 const SYSTEM = [

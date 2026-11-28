@@ -13,6 +13,7 @@ export const APP_ID = '555';
 export const webhookEdits = []; // コマンドの返事の書き換え（{ token, body }）
 export const webhookPosts = []; // コマンドの追いの投稿（{ token, body }）
 export let commands = [];
+export const requests = []; // 届いた問い合わせ（"GET /channels/…" の形）。回数を確かめる
 
 export function addMessage(channelId, author, body) {
   const m = { id: String(nextId++), type: 0, author, content: body.content, timestamp: new Date().toISOString(), attachments: [], allowed_mentions: body.allowed_mentions };
@@ -20,6 +21,7 @@ export function addMessage(channelId, author, body) {
   messages.get(channelId).push(m);
   const t = channels.get(channelId);
   if (t?.thread_metadata) {
+    if (m.id !== channelId) t.message_count = (t.message_count || 0) + 1; // 最初のメッセージは数えない（本物と同じ）
     t.last_message_id = m.id;
     t.thread_metadata.archived = false; // 書き込むと開く
   }
@@ -49,6 +51,16 @@ export const discord = createServer(async (req, res) => {
     return send(200, { id: '2', ...body });
   }
   if (req.headers.authorization !== 'Bot test-token') return send(401, { message: 'Unauthorized' });
+  requests.push(`${req.method} ${p}`);
+  if ((m = p.match(/^\/channels\/(\d+)\/messages\/(\d+)\/reactions\/([^/]+)\/@me$/)) && req.method === 'PUT') {
+    const msg = (messages.get(m[1]) || []).find((x) => x.id === m[2]);
+    if (!msg) return send(404, { message: 'Unknown Message' });
+    const name = decodeURIComponent(m[3]);
+    msg.reactions = msg.reactions || [];
+    if (!msg.reactions.some((r) => r.emoji.name === name)) msg.reactions.push({ emoji: { id: null, name }, me: true, count: 1 });
+    res.writeHead(204);
+    return res.end();
+  }
   if (req.method === 'GET' && p === '/applications/@me') return send(200, { id: APP_ID, name: 'NEMU.' });
   if (req.method === 'PUT' && p === `/applications/${APP_ID}/commands`) {
     commands = body.map((c, n) => ({ id: String(9000 + n), ...c }));
@@ -88,7 +100,8 @@ export const discord = createServer(async (req, res) => {
       return send(200, all.slice(from, from + limit).reverse());
     }
     const afterId = BigInt(url.searchParams.get('after') || '0');
-    const list = all.filter((x) => BigInt(x.id) > afterId).reverse(); // 新しい順で返す
+    const beforeId = url.searchParams.get('before');
+    const list = all.filter((x) => BigInt(x.id) > afterId && (!beforeId || BigInt(x.id) < BigInt(beforeId))).reverse(); // 新しい順で返す
     return send(200, list.slice(0, limit));
   }
   if ((m = p.match(/^\/channels\/(\d+)$/))) {
