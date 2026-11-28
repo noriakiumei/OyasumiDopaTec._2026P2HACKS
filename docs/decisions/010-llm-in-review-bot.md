@@ -10,7 +10,8 @@
   - **ChatGPT の Dot・Codex**：厳密さ・安全さが要る仕事。朝夕のダイジェスト（#23、事実だけで解釈を足さない）、放置ブランチ・Issue の見回り（#25、消すのはマージ済み・返事のあったものだけ）、PR の安全チェック。NEMU の道具（`post_digest`・`post_to_thread` など）で Discord に書く。つなぎ方と頼み方は `tools/review-bot/dot.md`。
   - Discord への窓口は全部 NEMU にする。
 - API キーは Worker の Secret `ANTHROPIC_API_KEY` にだけ置く。無ければ AI の機能だけが止まり、ほかは今までどおり動く。
-- モデルは2段にする。軽い処理（感想の整理）は `claude-haiku-5-5`、読んで考える処理（PR の要約、分解）は `claude-opus-5-5`。Worker の `LLM_MODEL_FAST`・`LLM_MODEL_SMART` で変えられる。
+- モデルは2段にする。軽い処理は `claude-haiku-5-5`、読んで考える処理（PR の要約、分解、感想の整理）は `claude-opus-5-5`。Worker の `LLM_MODEL_FAST`・`LLM_MODEL_SMART` で変えられる。
+- 感想の整理は、最初は Haiku だったが、前後の会話から意味をくみ取れなかった（2026-11-28 こうのすけ「文脈を理解できるようにしてほしい」）。前後の会話とスレッドの Issue を渡し、Opus にした。Discord のコマンドは裏の仕事を30秒しか待たないので、Opus が20秒で答えなければ Haiku でやり直す。
 - SDK（`@anthropic-ai/sdk`）は使わず、`fetch` で Messages API を直接呼ぶ（`llm.mjs`）。
 - 答えの形が決まっているものは structured outputs（`output_config.format`）で JSON にしてもらう。
 - GitHub の情報集めは、できるだけ GitHub Actions や Dot に任せて NEMU に渡す。Worker に GitHub のトークンを置かなくても動くようにする。
