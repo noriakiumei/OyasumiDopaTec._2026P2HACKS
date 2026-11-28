@@ -89,6 +89,9 @@ async function contextOf(cfg, fb) {
   return { threadName: channel?.name || '', messages };
 }
 
+// みんなに見える一言。リンクの埋め込み（プレビュー）は出さない
+const announce = (author, filed, title) => `📝 ${author} の感想から Issue を立てたよ：[#${filed.number} ${title}](<${filed.url}>)`.slice(0, 2000);
+
 function resultMessage(draft, filed, by) {
   const lines = [];
   if (filed.created) lines.push(NEMU.issueCreated(by, filed.number, draft.title));
@@ -109,6 +112,10 @@ async function makeIssue(cfg, env, i, fb) {
     const button = filed.url.length <= 512 ? [{ type: 1, components: [{ type: 2, style: 5, label: filed.created ? 'Issue を開く' : 'GitHub で作る', url: filed.url }] }] : [];
     const content = resultMessage(draft, filed, by) + (button.length ? '' : `\n${filed.url}`);
     await edit({ content: content.slice(0, 2000), components: button });
+    // 結果の詳しいところは押した人だけに見せ、みんなには起票したことだけを短く知らせる
+    if (filed.created) {
+      await discord(cfg, 'POST', `/webhooks/${i.application_id}/${i.token}`, { content: announce(fb.author, filed, draft.title), allowed_mentions: { parse: [] } });
+    }
   } catch (e) {
     await edit({ content: NEMU.issueFailed(String(e.message).slice(0, 300)) }).catch(() => {});
   }
@@ -132,9 +139,9 @@ export async function interactions(request, env, ctx) {
   const fb = feedbackFrom(i);
   if (!fb || !fb.text.trim()) return reply(NEMU.noText);
 
-  // Discord は3秒以内の返事を待つので、先に「考え中…」を返し、続きは裏でやる
+  // Discord は3秒以内の返事を待つので、先に「考え中…」を返し、続きは裏でやる。結果は押した人だけに見える
   ctx.waitUntil(makeIssue(cfg, env, i, fb));
-  return respond({ type: DEFERRED });
+  return respond({ type: DEFERRED, data: { flags: EPHEMERAL } });
 }
 
 // コマンドを Discord に登録する（何度やっても同じ結果になる）
