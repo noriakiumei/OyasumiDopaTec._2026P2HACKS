@@ -4,13 +4,16 @@
 # - Issue に「分解」ラベルが付く → AI がサブタスクの案を作り（split_issue）、Issue にコメントしてラベルを外す
 # - 手動で動かす → 今開いている Issue のスレッドをまとめて立てる
 # リポジトリのシークレット NEMU_URL（NEMU の URL、鍵入り）が要る。無ければ何もしない。
+# PR は pull_request_target で受ける。フォークからの PR でもシークレットが渡り、スレッドにつながる。
+# このワークフローは PR のコードを取り出さず（checkout しない）、PR のタイトルや本文も jq だけで扱うので、
+# フォークの人がこのワークフローや NEMU_URL を変えたり読んだりはできない。PR のコードを動かす処理は足さないこと。
 
 name: NEMU（Issue のスレッド）
 
 on:
   issues:
     types: [opened, edited, closed, reopened, labeled]
-  pull_request:
+  pull_request_target:
     types: [opened, edited, reopened]
   workflow_dispatch:
 
@@ -35,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$NEMU_URL" ]; then
-            echo "シークレット NEMU_URL が無いので何もしない（フォークからの PR でも無い）"
+            echo "シークレット NEMU_URL が無いので何もしない"
             exit 0
           fi
 
@@ -78,7 +81,7 @@ jobs:
               fi
               call sync_issue "$(jq --arg action "$(jq -r .action "$GITHUB_EVENT_PATH")" ".issue | $issue_args + {action: \$action}" "$GITHUB_EVENT_PATH")"
               ;;
-            pull_request)
+            pull_request_target)
               args=$(jq '.pull_request | {url: .html_url, title: .title, author: .user.login,
                 issues: [(.body // "") | scan("(?i)\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s*:?\\s+#([0-9]+)") | .[0]] | unique}' "$GITHUB_EVENT_PATH")
               if [ "$(echo "$args" | jq '.issues | length')" = "0" ]; then
