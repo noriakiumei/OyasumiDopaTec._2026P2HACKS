@@ -51,6 +51,8 @@ function feedbackFrom(i) {
     const m = i.data.resolved?.messages?.[i.data.target_id];
     if (!m) return null;
     return {
+      id: m.id,
+      channel: m.channel_id || i.channel_id,
       text: m.content || '',
       author: userName(m.author),
       link: `https://discord.com/channels/${guild}/${m.channel_id || i.channel_id}/${m.id}`,
@@ -58,7 +60,32 @@ function feedbackFrom(i) {
     };
   }
   const text = i.data.options?.find((o) => o.name === 'text')?.value || '';
-  return { text, author: userName(i.member?.user || i.user), link: `https://discord.com/channels/${guild}/${i.channel_id}`, attachments: [] };
+  return { id: null, channel: i.channel_id, text, author: userName(i.member?.user || i.user), link: `https://discord.com/channels/${guild}/${i.channel_id}`, attachments: [] };
+}
+
+const CONTEXT_MESSAGES = 30; // 前後の会話を何件読むか（Discord は1回100件まで）
+
+// メッセージの本文。<@123> のようなメンションは名前に直す
+function plain(m) {
+  const names = new Map((m.mentions || []).map((u) => [u.id, userName(u)]));
+  const text = String(m.content || '').replace(/<@!?(\d+)>/g, (_, id) => `@${names.get(id) || '誰か'}`);
+  const files = (m.attachments || []).length;
+  return text + (files ? `（添付 ${files} 件）` : '');
+}
+
+const tokyoTime = (iso) => (iso ? new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+
+// 前後の会話と、スレッドの名前（`#12 タイトル` なら Issue につながる）。読めなくても Issue は作る
+async function contextOf(cfg, fb) {
+  const [channel, list] = await Promise.all([
+    discord(cfg, 'GET', `/channels/${fb.channel}`).catch(() => null),
+    discord(cfg, 'GET', `/channels/${fb.channel}/messages?limit=${CONTEXT_MESSAGES}${fb.id ? `&around=${fb.id}` : ''}`).catch(() => []),
+  ]);
+  const messages = (Array.isArray(list) ? list : [])
+    .filter((m) => m.type === 0 || m.type === 19) // ふつうの投稿と返信だけ
+    .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+    .map((m) => ({ author: `${userName(m.author)}${m.author?.bot ? '（ボット）' : ''}`, text: plain(m), time: tokyoTime(m.timestamp), target: m.id === fb.id }));
+  return { threadName: channel?.name || '', messages };
 }
 
 function resultMessage(draft, filed, by) {
@@ -75,7 +102,8 @@ async function makeIssue(cfg, env, i, fb) {
   const edit = (body) => discord(cfg, 'PATCH', `/webhooks/${i.application_id}/${i.token}/messages/@original`, { allowed_mentions: { parse: [] }, ...body });
   const by = userName(i.member?.user || i.user);
   try {
-    const draft = await draftIssue(cfg, env, fb);
+    const context = await contextOf(cfg, fb);
+    const draft = await draftIssue(cfg, env, { ...fb, context });
     const filed = await fileIssue(cfg, draft);
     const button = filed.url.length <= 512 ? [{ type: 1, components: [{ type: 2, style: 5, label: filed.created ? 'Issue を開く' : 'GitHub で作る', url: filed.url }] }] : [];
     const content = resultMessage(draft, filed, by) + (button.length ? '' : `\n${filed.url}`);
