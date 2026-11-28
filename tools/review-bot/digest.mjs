@@ -2,6 +2,8 @@
 // 文は呼ぶ側（ChatGPT の Dot・Codex など）が作る。NEMU は書く場所を決めて投稿するだけ（AI は使わない）。
 // Discord を触る関数（kit）は core.mjs から渡してもらう（core.mjs がこのファイルを読むので、ここからは読まない）。
 
+import { NEMU } from './voice.mjs';
+
 export const DIGEST_THREAD = 'ダイジェスト';
 
 // 投稿先：DISCORD_DIGEST_CHANNEL_ID があればそこ、無ければレビュー依頼のフォーラムの「ダイジェスト」スレッド
@@ -10,7 +12,7 @@ async function digestTarget(cfg, kit) {
   let thread = (await kit.threads(cfg)).find((t) => t.name === DIGEST_THREAD);
   if (!thread) {
     thread = await kit.createThread(cfg, DIGEST_THREAD, {
-      content: 'ふぁ……ここは朝と夕方のダイジェストと、お片付けの提案を置く場所だよ。ネムが寝てる間も Dot たちが見回ってくれるはず💤',
+      content: NEMU.digestIntro,
       allowed_mentions: { parse: [] },
     });
   }

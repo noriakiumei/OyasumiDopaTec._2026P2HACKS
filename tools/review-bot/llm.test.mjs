@@ -54,8 +54,8 @@ test('PR のレビューを頼むと、差分を上位モデルで要約して�
   assert.equal(r.created, true);
   assert.match(r.summary, /^・変わったこと：ガチャのボタンを足した\n・見てほしいところ：app\.js のボタンの位置\n・試し方：/);
   const content = sent.at(-1).content;
-  assert.match(content, /\*\*AI の要約（差分から）\*\*\n・変わったこと：ガチャのボタンを足した/);
-  assert.ok(content.indexOf('AI の要約') < content.indexOf('見てね'));
+  assert.match(content, /\*\*ネムの3行まとめ（差分から）\*\*\n・変わったこと：ガチャのボタンを足した/);
+  assert.ok(content.indexOf('ネムの3行まとめ') < content.indexOf('見てね'));
 
   // GitHub から PR の中身と差分を読んだ
   assert.ok(ghRequests.some((x) => x.key === `GET ${API_REPO}/pulls/31` && x.headers.accept === 'application/vnd.github.diff'));
@@ -78,7 +78,7 @@ test('LLM が失敗しても、要約なしでレビュー依頼は届く', asyn
   assert.equal(r.summary, null);
   assert.match(r.summary_error, /400/);
   assert.equal(sent.length, before + 1);
-  assert.ok(!sent.at(-1).content.includes('AI の要約'));
+  assert.ok(!sent.at(-1).content.includes('ネムの3行まとめ'));
 });
 
 test('LLM が断ったとき（refusal）も、要約なしで届く', async () => {

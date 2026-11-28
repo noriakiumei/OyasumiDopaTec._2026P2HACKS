@@ -5,6 +5,7 @@ import { llmConfig } from './llm.mjs';
 import { githubConfig, parseGithubUrl } from './github.mjs';
 import { summarizePr } from './pr-summary.mjs';
 import { postDigest } from './digest.mjs';
+import { NEMU } from './voice.mjs';
 
 const FORUM = 15;
 
@@ -176,11 +177,11 @@ async function unarchive(cfg, thread) {
 // ---------- 道具 ----------
 
 export function requestText({ ids, kind, title, url, message, from, summary }) {
-  const head = kind === 'consult' ? '相談したいことがあるよ。意見をちょうだい！' : 'レビューをお願い！';
+  const head = kind === 'consult' ? NEMU.consult : NEMU.review;
   const by = from ? `（${from} より）` : '';
-  const ai = summary ? ['', '**AI の要約（差分から）**', summary] : [];
+  const ai = summary ? ['', NEMU.summaryHead, summary] : [];
   return clip(
-    [`${ids.map((id) => `<@${id}>`).join(' ')} ${head}${by}`, url, '', `**${title}**`, ...ai, '', message.trim(), '', '返事はこのスレッドに書いてね。AI が読みに来るよ。'].join('\n'),
+    [`${ids.map((id) => `<@${id}>`).join(' ')} ${head}${by}`, url, '', `**${title}**`, ...ai, '', message.trim(), '', NEMU.replyHere].join('\n'),
     2000,
   );
 }
@@ -194,7 +195,7 @@ function issueText(number, { url, title, author, body }) {
     600,
   );
   return clip(
-    [`Issue #${number}${author ? `（${author} より）` : ''}`, url, '', `**${title}**`, ...(excerpt ? ['', excerpt] : []), '', 'この Issue の相談・感想・レビュー依頼は、このスレッドにまとめるよ。AI も読みに来るよ。'].join('\n'),
+    [`Issue #${number}${author ? `（${author} より）` : ''}`, url, '', `**${title}**`, ...(excerpt ? ['', excerpt] : []), '', NEMU.issueThread].join('\n'),
     2000,
   );
 }
@@ -209,7 +210,7 @@ async function linkPr(cfg, { number, url, title, author, issues }) {
     const prs = prsInName(thread.name);
     if (!prs.includes(number)) {
       await unarchive(cfg, thread);
-      await say(cfg, thread, [`PR #${number} ができたよ${author ? `（${author}）` : ''}${title ? `：${title}` : ''}`, url].join('\n'));
+      await say(cfg, thread, [NEMU.prLinked(number, author, title), url].join('\n'));
       await discord(cfg, 'PATCH', `/channels/${thread.id}`, { name: nameFor(baseName(thread.name), [...prs, number]) });
       thread.name = nameFor(baseName(thread.name), [...prs, number]);
     }
@@ -393,14 +394,14 @@ const tools = {
       }
       if (a.state === 'closed') {
         if (!wasArchived) {
-          await say(cfg, thread, 'Issue が閉じられたので、このスレッドも閉じるね。');
+          await say(cfg, thread, NEMU.issueClosed);
           actions.push('closed');
         }
         if (!wasArchived || actions.includes('renamed')) await discord(cfg, 'PATCH', `/channels/${thread.id}`, { archived: true });
       } else if (wasArchived) {
         // 書き込みが7日ないと Discord が自動で閉じるので、開き直しの知らせは Issue が開き直されたときだけ書く
         if (!actions.includes('renamed')) await unarchive(cfg, thread);
-        if (a.action === 'reopened') await say(cfg, thread, 'Issue が開き直されたよ。');
+        if (a.action === 'reopened') await say(cfg, thread, NEMU.issueReopened);
         actions.push('reopened');
       }
       return { thread_id: thread.id, thread_url: threadUrl(ch.guild_id, thread.id), action: actions.join(',') || 'none' };
