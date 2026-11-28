@@ -1,0 +1,73 @@
+# NEMU（tools/review-bot）が main に入ったら、Cloudflare Workers にデプロイする。
+# テスト → wrangler deploy → Discord のコマンド登録 → 応答の確認、の順。
+# リポジトリのシークレットが要る（無ければ何もしない）
+#   CLOUDFLARE_API_TOKEN   Cloudflare の API トークン（テンプレート「Edit Cloudflare Workers」）
+#   CLOUDFLARE_ACCOUNT_ID  Worker がある Cloudflare アカウントの ID
+#   NEMU_URL               （nemu.yml と同じ）あればコマンド登録と応答の確認をする
+# ダッシュボードで入れた変数（DISCORD_MEMBERS など）は wrangler.toml の keep_vars で残る。Secret はもともと消えない。
+
+name: NEMU のデプロイ
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/review-bot/**'
+      - '.github/workflows/deploy-nemu.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-nemu
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      NEMU_URL: ${{ secrets.NEMU_URL }}
+    steps:
+      - name: シークレットを確かめる
+        id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "シークレット CLOUDFLARE_API_TOKEN か CLOUDFLARE_ACCOUNT_ID が無いので、デプロイは飛ばす"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.secrets.outputs.ok == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.secrets.outputs.ok == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: テスト
+        if: steps.secrets.outputs.ok == 'true'
+        run: node --test tools/review-bot/*.test.mjs
+
+      - name: デプロイ
+        if: steps.secrets.outputs.ok == 'true'
+        working-directory: tools/review-bot
+        run: npx --yes wrangler@4 deploy --message "main ${GITHUB_SHA::7}"
+
+      - name: Discord のコマンドを登録して、応答を確かめる
+        if: steps.secrets.outputs.ok == 'true' && env.NEMU_URL != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 鍵入りの URL はログに出さない（GitHub がシークレットを伏せるが、念のため変数だけで扱う）
+          setup="${NEMU_URL/\/mcp\//\/discord\/setup\/}"
+          curl -fsS --retry 3 --retry-delay 5 "$setup" | jq -e '.ok == true' > /dev/null
+          echo "Discord のコマンドを登録した"
+          jq -n '{jsonrpc: "2.0", id: 1, method: "tools/list"}' |
+            curl -fsS --retry 3 --retry-delay 5 -X POST "$NEMU_URL" -H 'Content-Type: application/json' --data-binary @- |
+            jq -r '"NEMU が応答した。道具：" + ([.result.tools[].name] | join(", "))'

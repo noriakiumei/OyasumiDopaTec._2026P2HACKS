@@ -91,7 +91,16 @@ Discord ではスレッドを別のチャンネルに移せないので、1つ�
 
 ### ネット上に置く
 
-`tools/review-bot` で `npx wrangler deploy` する。ダッシュボードで直すときは、`node tools/review-bot/bundle.mjs` が出す1ファイル版を Worker のエディタに貼ってデプロイする。コードを変えたら、どちらかでデプロイし直す。
+**ふだんは自動**：`tools/review-bot` の変更が `main` に入ると、Actions の「NEMU のデプロイ」（`.github/workflows/deploy-nemu.yml`）が、テスト → `wrangler deploy` → Discord のコマンド登録 → 応答の確認まで行う。Actions の画面から手動でも動かせる。使うには、リポジトリのシークレットに次の2つを入れる（リポジトリの管理者だけができる）。無いあいだはデプロイを飛ばす。
+
+| 名前 | 中身 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare の「My Profile → API Tokens → Create Token」で、テンプレート **Edit Cloudflare Workers** から作ったトークン（Worker のあるアカウントだけに絞る） |
+| `CLOUDFLARE_ACCOUNT_ID` | Worker のあるアカウントの ID（ダッシュボードの Workers の画面の右側に出ている） |
+
+ダッシュボードで入れた変数（`DISCORD_MEMBERS` など）は、`wrangler.toml` の `keep_vars = true` でデプロイしても残る。Secret はもともと消えない。
+
+手で入れるとき：`tools/review-bot` で `npx wrangler deploy` するか、`node tools/review-bot/bundle.mjs` が出す1ファイル版を Worker のエディタに貼ってデプロイする。
 
 設定画面の「Variables and Secrets」に4つ入れる（トークンと鍵は Secret にする）。
 
@@ -119,7 +128,7 @@ URL は `https://<Worker の名前>.<アカウント>.workers.dev/mcp/<ACCESS_KE
 
 1. Developer Portal の「General Information」にある **Public Key** を、Worker の変数 `DISCORD_PUBLIC_KEY` に入れる（秘密ではないので Secret でなくてよい）。
 2. 同じ画面の **Interactions Endpoint URL** に `https://<Worker の URL>/discord/interactions` を入れて保存する（Discord が試しに送って、通れば保存できる）。
-3. ブラウザで `https://<Worker の URL>/discord/setup/<ACCESS_KEY>` を1回開く。`"ok": true` が出ればコマンドが登録された。コマンドを変えたときも開き直す。
+3. ブラウザで `https://<Worker の URL>/discord/setup/<ACCESS_KEY>` を1回開く。`"ok": true` が出ればコマンドが登録された。自動デプロイ（上）を使っていれば、デプロイのたびに登録し直すので開かなくてよい。
 4. 直接起票させるなら、GitHub の fine-grained トークン（このリポジトリだけ、Issues の Read and write）を Worker の Secret `GITHUB_TOKEN` に入れる。起票した人はトークンの持ち主になる（書いた人は本文に残る）。
 
 コマンドが出てこないときは、招待 URL の scope を `bot%20applications.commands` にしてサーバーに入れ直す。

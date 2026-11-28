@@ -32,4 +32,4 @@
 
 - Worker に `ANTHROPIC_API_KEY` を入れる必要がある（こうのすけの Cloudflare アカウント）。キーが漏れたら Claude Console で消して作り直す。
 - 使い過ぎが心配なら、Claude Console のワークスペースで月の上限（Spend limit）を決めておく。呼ぶたびに使ったトークン数を Cloudflare のログに出している。
-- コードを変えたら Worker をデプロイし直す（README の「ネット上に置く」）。1ファイル版を作るときは、ファイルどうしで同じ名前の関数を作らない。
+- コードが `main` に入ると Actions が Worker にデプロイする（README の「ネット上に置く」）。1ファイル版を作るときは、ファイルどうしで同じ名前の関数を作らない。

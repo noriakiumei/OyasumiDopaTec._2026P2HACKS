@@ -29,7 +29,7 @@
 
 ## 影響（変わること・注意すること）
 
-- Worker は chico の Cloudflare アカウントにある。コードを変えたら、README の手順でデプロイし直す。
+- Worker は chico の Cloudflare アカウントにある。コードが `main` に入ると Actions が自動でデプロイする（2026-11-28、#37。それまではダッシュボードに貼る手作業だった）。
 - URL の鍵（`ACCESS_KEY`）が漏れたら、Worker の設定で変えて URL を配り直す。トークンが漏れたら Developer Portal で「Reset Token」して Worker の設定を変える。
 - メンバーが増えたら Worker の `DISCORD_MEMBERS` に足す。
 - 通知が多いと無視されるので、気軽に呼ばない。小さな質問は PR・Issue のコメントで聞く。

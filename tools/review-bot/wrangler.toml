@@ -1,4 +1,10 @@
-# ネット上の版（worker.mjs）を Cloudflare Workers に置く設定。手順は README.md の「ネット上に置く」。
+# ネット上の版（worker.mjs）を Cloudflare Workers に置く設定。main に入ると .github/workflows/deploy-nemu.yml がデプロイする。
 name = "oyasumi-review-bot"
 main = "worker.mjs"
 compatibility_date = "2026-11-01"
+# ダッシュボードで入れた変数（DISCORD_MEMBERS など）をデプロイで消さない
+keep_vars = true
+
+# 使ったトークン数などのログを Cloudflare のダッシュボード（Logs）で見られるようにする
+[observability]
+enabled = true
