@@ -1,6 +1,8 @@
 // GitHub の REST API を読む（fetch だけ）。リポジトリは public なので、トークンが無くても読める。
 // GITHUB_TOKEN（任意）があれば使う。無いと、Cloudflare の IP は共有なので回数の上限に当たりやすい。
 
+export const DEFAULT_REPO = 'noriakiumei/OyasumiDopaTec._2026P2HACKS';
+
 export function githubConfig(env) {
   return { token: env.GITHUB_TOKEN?.trim() || null, api: env.GITHUB_API_URL || 'https://api.github.com' };
 }

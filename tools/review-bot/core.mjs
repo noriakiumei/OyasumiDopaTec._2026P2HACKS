@@ -2,7 +2,7 @@
 // Node 専用の機能は使わない（fetch だけ）。
 
 import { llmConfig } from './llm.mjs';
-import { githubConfig, parseGithubUrl } from './github.mjs';
+import { githubConfig, parseGithubUrl, DEFAULT_REPO } from './github.mjs';
 import { summarizePr } from './pr-summary.mjs';
 import { postDigest } from './digest.mjs';
 import { splitIssue } from './split.mjs';
@@ -32,6 +32,7 @@ export function loadConfig(env) {
     api: env.DISCORD_API_URL || 'https://discord.com/api/v10',
     llm: llmConfig(env), // ANTHROPIC_API_KEY が無ければ null（LLM の機能は使わない）
     github: githubConfig(env),
+    repo: env.GITHUB_REPO || DEFAULT_REPO, // スレッド名の #12 から Issue・PR の URL を作るのに使う
     digestChannelId: env.DISCORD_DIGEST_CHANNEL_ID || null, // 無ければフォーラムの「ダイジェスト」スレッドに書く
   };
 }
@@ -171,6 +172,53 @@ function toReply(cfg, m) {
   };
 }
 
+// スレッド名から、その件の Issue・PR の URL を作る（Discord を読まずに済む）
+function urlFromName(cfg, name) {
+  const pr = String(name).match(/^PR #(\d+)(\s|$)/);
+  if (pr) return `https://github.com/${cfg.repo}/pull/${pr[1]}`;
+  const issue = String(name).match(/^#(\d+)(\s|（|$)/);
+  return issue ? `https://github.com/${cfg.repo}/issues/${issue[1]}` : null;
+}
+
+// ---------- 既読の印 ----------
+// NEMU が読んだ人の投稿に 👀 を付ける。付いた投稿より前は読んだことにする。
+// 既読が Discord に残るので、AI が last_id を覚えておかなくていいし、人にも「読んだ」と見える。
+
+const SEEN = '👀';
+const isHuman = (m) => !m.author.bot && (m.type === 0 || m.type === 19);
+const seenByMe = (m) => (m.reactions || []).some((r) => r.me && r.emoji?.name === SEEN);
+const UNREAD_PAGES = 5; // 未読を探すのは新しいほうから 500 件まで
+
+// まだ読んでいない人の投稿（古い順）。新しいほうから読み、👀 の付いた人の投稿に当たったら止める
+async function unreadIn(cfg, thread) {
+  const unread = [];
+  let before = '';
+  for (let page = 0; page < UNREAD_PAGES; page++) {
+    const batch = (await discord(cfg, 'GET', `/channels/${thread.id}/messages?limit=100${before}`)).slice().sort(byId).reverse();
+    for (const m of batch) {
+      if (!isHuman(m)) continue;
+      if (seenByMe(m)) return unread.reverse();
+      unread.push(m);
+    }
+    if (batch.length < 100) break;
+    before = `&before=${batch.at(-1).id}`;
+  }
+  return unread.reverse();
+}
+
+// いちばん新しい人の投稿に 👀 を付ける（1回で済む）。付けられなくても読んだ結果は返す
+async function markRead(cfg, thread, m) {
+  try {
+    await discord(cfg, 'PUT', `/channels/${thread.id}/messages/${m.id}/reactions/${encodeURIComponent(SEEN)}/@me`);
+    return true;
+  } catch (e) {
+    console.log(`既読の印を付けられなかった：${e.message}`);
+    return false;
+  }
+}
+
+const INBOX_SCAN_LIMIT = 20; // スレッドを指定しないときに読むスレッドの数（Workers の外部リクエストの上限 50 に収める）
+
 async function unarchive(cfg, thread) {
   if (thread.thread_metadata?.archived) await discord(cfg, 'PATCH', `/channels/${thread.id}`, { archived: false });
 }
@@ -288,12 +336,14 @@ const tools = {
 
   read_replies: {
     description: () =>
-      'レビュー依頼スレッドの、人の返信を古い順に読む（ボット自身の投稿は除く）。after に前回の last_id を渡すと、その後の返信だけ返す。作業を始めるときに確かめる。',
+      'スレッドの人の返信を、はじめから全部古い順に読む（ボット自身の投稿は除く）。経緯を全部知りたいときに使う。ふだんの確認は inbox（まだ読んでいない返信だけ）を使う。' +
+      'after に前回の last_id を渡すと、その後の返信だけ返す。読んだら、いちばん新しい返信に 👀 を付けて既読にする（mark_read: false で付けない）。',
     inputSchema: {
       type: 'object',
       properties: {
         thread: { type: 'string', description: 'スレッド ID、スレッドの URL、または PR・Issue の URL' },
         after: { type: 'string', description: 'この ID より後の返信だけ読む（前回の last_id）' },
+        mark_read: { type: 'boolean', description: '読んだ返信に 👀 を付けて既読にするか（既定 true）' },
       },
       required: ['thread'],
     },
@@ -308,13 +358,62 @@ const tools = {
         after = batch.slice().sort(byId).at(-1).id;
       }
       all.sort(byId);
-      const replies = all.filter((m) => !m.author.bot && (m.type === 0 || m.type === 19)).map((m) => toReply(cfg, m));
+      const human = all.filter(isHuman);
+      const newest = human.at(-1);
+      if (newest && a.mark_read !== false && !seenByMe(newest)) await markRead(cfg, thread, newest);
       return {
         thread_id: thread.id,
         name: thread.name,
         closed: Boolean(thread.thread_metadata?.archived),
-        replies,
+        replies: human.map((m) => toReply(cfg, m)),
         last_id: all.at(-1)?.id ?? a.after ?? null,
+      };
+    },
+  },
+
+  inbox: {
+    description: () =>
+      'まだ読んでいない人の返信だけを読む。作業を始めるときは、着手している Issue か PR の URL を thread に渡す（ほかの Issue のスレッドは読まない）。' +
+      '読んだら、いちばん新しい返信に 👀 を付けて既読にするので、次に呼ぶとその後の返信だけが返る。人にも AI が読んだことが見える。' +
+      `thread を省くと、返信のある開いたスレッドを新しい順に ${INBOX_SCAN_LIMIT} 本まで見る（残りは skipped に出る）。`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        thread: { type: 'string', description: '着手している Issue・PR の URL（スレッド ID・スレッドの URL でもよい）。省くと開いたスレッドを広く見る' },
+        mark_read: { type: 'boolean', description: '読んだ返信に 👀 を付けて既読にするか（既定 true）。false なら覗くだけ' },
+      },
+    },
+    async run(cfg, a) {
+      const ch = await channel(cfg);
+      let targets;
+      let skipped = [];
+      if (a.thread) {
+        targets = [await resolveThread(cfg, a.thread)];
+      } else {
+        // 最初の投稿のあとに何も無いスレッド（message_count が 0）は読まない
+        const open = (await threads(cfg))
+          .filter((t) => !t.thread_metadata?.archived && t.message_count !== 0 && t.last_message_id !== t.id)
+          .sort((x, y) => (BigInt(y.last_message_id || y.id) > BigInt(x.last_message_id || x.id) ? 1 : -1));
+        targets = open.slice(0, INBOX_SCAN_LIMIT);
+        skipped = open.slice(INBOX_SCAN_LIMIT).map((t) => t.name);
+      }
+      const out = [];
+      for (const t of targets) {
+        const unread = await unreadIn(cfg, t);
+        if (!unread.length) continue;
+        const marked = a.mark_read === false ? false : await markRead(cfg, t, unread.at(-1));
+        out.push({
+          thread_id: t.id,
+          name: t.name,
+          thread_url: threadUrl(ch.guild_id, t.id),
+          url: urlFromName(cfg, t.name),
+          unread: unread.map((m) => toReply(cfg, m)),
+          marked_read: marked,
+        });
+      }
+      return {
+        threads: out,
+        ...(skipped.length ? { skipped, next: 'skipped のスレッドは、thread に URL を渡して1本ずつ読む' } : {}),
       };
     },
   },
@@ -466,36 +565,35 @@ const tools = {
   },
 
   list_reviews: {
-    description: () => '開いているレビュー依頼スレッドの一覧。どの PR・Issue の件か（url）と、最後の投稿の ID を返す。',
+    description: () =>
+      '開いているスレッドの一覧。どの PR・Issue の件か（url、スレッド名から作る）と、最後の投稿の ID を返す。返信を読むには inbox を使う。',
     inputSchema: { type: 'object', properties: {} },
     async run(cfg) {
       const ch = await channel(cfg);
       const open = (await threads(cfg)).filter((t) => !t.thread_metadata?.archived);
-      const list = [];
-      for (const t of open) {
-        const first = await starter(cfg, t);
-        list.push({
+      return {
+        reviews: open.map((t) => ({
           thread_id: t.id,
           name: t.name,
           thread_url: threadUrl(ch.guild_id, t.id),
-          url: first?.content.split('\n')[1]?.trim() || null,
+          url: urlFromName(cfg, t.name),
           last_message_id: t.last_message_id ?? null,
-        });
-      }
-      return { reviews: list };
+        })),
+      };
     },
   },
 };
 
 // ---------- MCP（JSON-RPC 2.0） ----------
 
-const READ_ONLY = new Set(['read_replies', 'list_reviews']);
+const READ_ONLY = new Set(['list_reviews']); // read_replies と inbox は既読の印（👀）を付ける
 
 const INSTRUCTIONS =
   '人の確認が要るときに、Discord でその人に直接知らせて、返事を受け取るための道具。' +
   'Issue ごとに Discord のスレッドがあり（GitHub Actions が立てる）、PR とレビュー依頼もそのスレッドに集まる。' +
   'マージ前のレビューや「要相談」の判断のように、人が見ないと先に進めないときだけ request_review を使う。' +
-  '作業を始めるときは list_reviews と read_replies で新しい返信を確かめ、感想は Issue にするか PR で直す。';
+  '作業を始めるときは、着手している Issue か PR の URL を inbox に渡して、まだ読んでいない返信だけを確かめる（ほかの Issue のスレッドは読まない）。' +
+  '感想は Issue にするか PR で直す。';
 
 export async function handle(msg, env) {
   const { id, method, params } = msg;

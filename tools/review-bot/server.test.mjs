@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
-import { GUILD, FORUM_ID, channels, sent, addMessage, discord } from './fake-discord.mjs';
+import { GUILD, FORUM_ID, BOT, channels, sent, messages, requests, addMessage, discord } from './fake-discord.mjs';
 
 // ---------- MCP サーバーを動かす ----------
 
@@ -69,7 +69,7 @@ test('initialize と道具の一覧', async () => {
   proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   const list = await rpc(proc, 'tools/list', {});
   const names = list.result.tools.map((t) => t.name);
-  assert.deepEqual(names, ['request_review', 'read_replies', 'post_to_thread', 'close_review', 'sync_issue', 'link_pr', 'post_digest', 'split_issue', 'list_reviews']);
+  assert.deepEqual(names, ['request_review', 'read_replies', 'inbox', 'post_to_thread', 'close_review', 'sync_issue', 'link_pr', 'post_digest', 'split_issue', 'list_reviews']);
   assert.match(list.result.tools[0].description, /iuti, noriakiumei/);
 });
 
@@ -105,6 +105,31 @@ test('人の返信だけを読めて、after で続きだけ読める', async ()
   const again = await call('read_replies', { thread: threadId, after: r.last_id });
   assert.equal(again.replies.length, 0);
   assert.equal(again.last_id, r.last_id);
+  // 読んだ返信には 👀 が付き、inbox では既読になっている
+  const seen = messages.get(threadId).find((m) => m.content === 'ボタンが小さいかも');
+  assert.deepEqual(seen.reactions.map((x) => x.emoji.name), ['👀']);
+  assert.deepEqual((await call('inbox', { thread: PR })).threads, []);
+});
+
+test('inbox は未読の人の返信だけを返し、読んだら既読になる', async () => {
+  const ume = { id: '222', username: 'ume' };
+  addMessage(threadId, ume, { content: '色も変えたい' });
+  addMessage(threadId, BOT, { content: 'ボットの投稿は返らない' });
+  addMessage(threadId, ume, { content: '文字も大きく' });
+  const peek = await call('inbox', { thread: PR, mark_read: false });
+  assert.deepEqual(peek.threads[0].unread.map((m) => m.content), ['色も変えたい', '文字も大きく']);
+  assert.equal(peek.threads[0].marked_read, false);
+  const r = await call('inbox', { thread: PR });
+  assert.deepEqual(r.threads[0].unread.map((m) => m.content), ['色も変えたい', '文字も大きく']);
+  assert.equal(r.threads[0].unread[0].github, 'noriakiumei');
+  assert.equal(r.threads[0].marked_read, true);
+  assert.match(r.threads[0].url, /\/pull\/99$/);
+  // 印はいちばん新しい返信にだけ付く
+  assert.equal(messages.get(threadId).filter((m) => m.reactions?.length).length, 2);
+  assert.deepEqual((await call('inbox', { thread: PR })).threads, []);
+  addMessage(threadId, ume, { content: 'あと1つ' });
+  const next = await call('inbox', {}); // スレッドを省くと、開いたスレッドを広く見る
+  assert.deepEqual(next.threads.map((t) => [t.thread_id, t.unread.map((m) => m.content)]), [[threadId, ['あと1つ']]]);
 });
 
 test('スレッドに書ける（スレッドの URL でも指定できる）', async () => {
@@ -114,9 +139,12 @@ test('スレッドに書ける（スレッドの URL でも指定できる）', 
 });
 
 test('一覧に出て、閉じると消え、また頼むと同じスレッドが開く', async () => {
+  requests.length = 0;
   let l = await call('list_reviews', {});
   assert.equal(l.reviews.length, 1);
-  assert.equal(l.reviews[0].url, PR);
+  assert.match(l.reviews[0].url, /^https:\/\/github\.com\/noriakiumei\/OyasumiDopaTec\._2026P2HACKS\/pull\/99$/);
+  // スレッドの数によらず、Discord への問い合わせは一覧の2回だけ（最初のメッセージは読まない）
+  assert.ok(!requests.some((x) => /\/messages\//.test(x)), requests.join('\n'));
   const c = await call('close_review', { thread: PR, message: 'マージされたので閉じるね' });
   assert.equal(c.closed, true);
   assert.equal(channels.get(threadId).thread_metadata.archived, true);
@@ -205,6 +233,6 @@ test('設定が無いときは、道具がエラーで設定の仕方を返す',
   const r = await call('list_reviews', {}, p);
   assert.match(r.error, /DISCORD_BOT_TOKEN と DISCORD_REVIEW_CHANNEL_ID が無い/);
   const list = await rpc(p, 'tools/list', {});
-  assert.equal(list.result.tools.length, 9);
+  assert.equal(list.result.tools.length, 10);
   p.kill();
 });
