@@ -49,7 +49,7 @@ Worker に `ANTHROPIC_API_KEY` を入れると使える。無ければ AI の機
 
 使ったトークン数は、呼ぶたびに Cloudflare のログ（Workers → oyasumi-review-bot → Logs）に出る。
 
-使うには、リポジトリのシークレット `NEMU_URL` に NEMU の URL（鍵入り）を入れる（Settings → Secrets and variables → Actions。リポジトリの管理者だけができる）。無いあいだは何もしない。
+使うには、リポジトリのシークレット `NEMU_URL` に NEMU の URL（鍵入り）を入れる（Settings → Secrets and variables → Actions。リポジトリの管理者だけができる）。無いあいだは何もしない。フォークから出した PR もつながる（`pull_request_target` で受けるので、シークレットが渡る）。このワークフローは `main` にある版で動くので、マージした後に効く。
 
 Discord ではスレッドを別のチャンネルに移せないので、1つのフォーラムで扱う。
 
