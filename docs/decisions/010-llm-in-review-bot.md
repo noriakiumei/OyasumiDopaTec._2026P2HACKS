@@ -7,7 +7,8 @@
 
 - NEMU（`tools/review-bot`）に、Claude の API（Anthropic）を使う機能を足す。作るのは #21〜#25 の5つ（レビュー依頼の要約、感想→Issue、朝夕のダイジェスト、Issue の分解、放置ブランチ・Issue の掃除提案）。
 - API キーは Worker の Secret `ANTHROPIC_API_KEY` にだけ置く。無ければ AI の機能だけが止まり、ほかは今までどおり動く。
-- モデルは2段にする。軽い処理（感想の整理、掃除の提案）は `claude-haiku-5-5`、読んで考える処理（PR の要約、ダイジェスト、分解）は `claude-opus-5-5`。Worker の `LLM_MODEL_FAST`・`LLM_MODEL_SMART` で変えられる。
+- モデルは2段にする。軽い処理は `claude-haiku-5-5`、読んで考える処理（PR の要約、分解、感想の整理）は `claude-opus-5-5`。Worker の `LLM_MODEL_FAST`・`LLM_MODEL_SMART` で変えられる。
+- 感想の整理は、最初は Haiku だったが、前後の会話から意味をくみ取れなかった（2026-11-28 こうのすけ「文脈を理解できるようにしてほしい」）。前後の会話とスレッドの Issue を渡し、Opus にした。Discord のコマンドは裏の仕事を30秒しか待たないので、Opus が20秒で答えなければ Haiku でやり直す。
 - SDK（`@anthropic-ai/sdk`）は使わず、`fetch` で Messages API を直接呼ぶ（`llm.mjs`）。
 - 答えの形が決まっているものは structured outputs（`output_config.format`）で JSON にしてもらう。
 - GitHub の情報集めは、できるだけ GitHub Actions に任せて NEMU に渡す（Actions には GitHub のトークンが最初からある）。Worker に GitHub のトークンを置かなくても動くようにする。

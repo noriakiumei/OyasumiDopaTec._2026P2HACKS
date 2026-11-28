@@ -5,7 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import worker from './worker.mjs';
-import { FORUM_ID, APP_ID, webhookEdits, discord } from './fake-discord.mjs';
+import { FORUM_ID, APP_ID, webhookEdits, discord, channels, messages } from './fake-discord.mjs';
 import { anthropic, githubApi, llm, llmRequests, ghRoutes, ghRequests, listen } from './fake-apis.mjs';
 
 const KEY = 'test-access-key-1234567890';
@@ -31,6 +31,15 @@ before(async () => {
   ghRoutes.set(`GET ${API_REPO}/issues`, () => [
     { number: 7, title: 'ガチャのボタンが押せない' },
     { number: 8, title: 'PR です', pull_request: {} },
+  ]);
+  ghRoutes.set(`GET ${API_REPO}/issues/7`, () => ({ number: 7, title: 'ガチャのボタンが押せない', state: 'open', body: 'ガチャ画面のボタンが反応しない' }));
+  // 「Issue にする」を押すメッセージ（777）がある、Issue #7 のスレッドと、その前後の会話
+  const kousuke = { id: '111', username: 'iuti', global_name: 'こうのすけ' };
+  channels.set('300', { id: '300', type: 11, guild_id: '1', parent_id: FORUM_ID, name: '#7 ガチャのボタンが押せない', thread_metadata: { archived: false } });
+  messages.set('300', [
+    { id: '770', type: 0, author: kousuke, content: 'ボタン直したから、ガチャ画面もう一回見てほしい', timestamp: '2026-11-28T02:00:00Z', mentions: [], attachments: [] },
+    { id: '777', type: 0, author: { id: '222', username: 'uma', global_name: '梅' }, content: 'ガチャ引いたら結果が真っ白', timestamp: '2026-11-28T02:05:00Z', mentions: [], attachments: [{ url: 'https://cdn.example/a.png' }] },
+    { id: '780', type: 0, author: { id: '999', username: 'NEMU.', bot: true }, content: '<@111> 見てあげて', timestamp: '2026-11-28T02:06:00Z', mentions: [kousuke], attachments: [] },
   ]);
   ghRoutes.set(`POST ${API_REPO}/issues`, (req, body) => ({ number: 40, html_url: 'https://github.com/noriakiumei/OyasumiDopaTec._2026P2HACKS/issues/40', ...body }));
 });
@@ -89,13 +98,19 @@ test('メッセージを「Issue にする」と、AI が整えて起票し、�
   const res = await send(messageCommand('ガチャ引いたら結果が真っ白 @everyone'), { e: { ...env, GITHUB_TOKEN: 'gh-test' } });
   assert.deepEqual(await res.json(), { type: 5 }); // まず「考え中…」
 
-  // Haiku に、開いている Issue（PR は除く）と感想を渡した
+  // 上位モデルに、開いている Issue（PR は除く）・スレッドの Issue・前後の会話・感想を渡した
   const { body } = llmRequests.at(-1);
-  assert.equal(body.model, 'claude-haiku-5-5');
-  assert.equal(body.fallbacks, undefined);
-  assert.match(body.messages[0].content, /#7 ガチャのボタンが押せない/);
-  assert.ok(!body.messages[0].content.includes('PR です'));
-  assert.match(body.messages[0].content, /<feedback author="梅">\nガチャ引いたら結果が真っ白/);
+  assert.equal(body.model, 'claude-opus-5-5');
+  const prompt = body.messages[0].content;
+  assert.match(prompt, /#7 ガチャのボタンが押せない/);
+  assert.ok(!prompt.includes('PR です'));
+  assert.match(prompt, /<thread_issue number="7" kind="Issue" state="open" title="ガチャのボタンが押せない">\nガチャ画面のボタンが反応しない/);
+  assert.match(prompt, /<conversation place="#7 ガチャのボタンが押せない">/);
+  assert.match(prompt, /\] こうのすけ: ボタン直したから、ガチャ画面もう一回見てほしい/);
+  assert.match(prompt, /★ \[[^\]]+\] 梅: ガチャ引いたら結果が真っ白（添付 1 件）/);
+  assert.match(prompt, /NEMU\.（ボット）: @こうのすけ 見てあげて/);
+  assert.ok(prompt.indexOf('ボタン直した') < prompt.indexOf('★'), '会話は古い順');
+  assert.match(prompt, /<feedback author="梅">\nガチャ引いたら結果が真っ白/);
 
   // 起票した中身
   const created = ghRequests.findLast((x) => x.key === `POST ${API_REPO}/issues`);

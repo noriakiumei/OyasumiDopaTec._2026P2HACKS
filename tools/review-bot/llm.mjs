@@ -25,7 +25,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // 1回質問して答えを返す。schema を渡すと、その形の JSON を返す（structured outputs）
 //   tier: 'fast'（Haiku）か 'smart'（Opus）
 //   effort: 'low' | 'medium' | 'high'。考える量とお金に効く
-export async function ask(llm, { tier = 'fast', system, prompt, schema, effort = 'low', maxTokens = 16000 }) {
+//   timeoutMs: 1回の問い合わせを待つ長さ（既定 120 秒）。過ぎると TimeoutError
+export async function ask(llm, { tier = 'fast', system, prompt, schema, effort = 'low', maxTokens = 16000, timeoutMs = 120000 }) {
   if (!llm) throw new Error('ANTHROPIC_API_KEY が無いので LLM は使えない');
   const model = llm.models[tier] || llm.models.fast;
   const body = {
@@ -43,7 +44,7 @@ export async function ask(llm, { tier = 'fast', system, prompt, schema, effort =
 
   let res;
   for (let attempt = 0; ; attempt++) {
-    res = await fetch(`${llm.api}/v1/messages`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(120000) });
+    res = await fetch(`${llm.api}/v1/messages`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
     // 混んでいる・向こうの不調は、少し待って2回までやり直す
     if ((res.status === 429 || res.status >= 500) && attempt < 2) {
       const after = Number(res.headers.get('retry-after'));
