@@ -8,6 +8,7 @@
 
 import { loadConfig, discord } from './core.mjs';
 import { draftIssue, fileIssue } from './feedback.mjs';
+import { NEMU } from './voice.mjs';
 
 const PING = 1;
 const COMMAND = 2;
@@ -63,9 +64,9 @@ function feedbackFrom(i) {
 
 function resultMessage(draft, filed, by) {
   const lines = [];
-  if (filed.created) lines.push(`📝 Issue にしたよ（${by} が依頼）：**#${filed.number} ${draft.title}**`);
-  else lines.push(`📝 Issue の下書きを作ったよ（${by} が依頼）：**${draft.title}**`, 'ボタンから作成ページを開いて、下の本文を貼ってね（GITHUB_TOKEN を入れると直接起票できる）。');
-  if (draft.duplicate) lines.push(`似た Issue があるかも：#${draft.duplicate.number} ${draft.duplicate.title}`);
+  if (filed.created) lines.push(NEMU.issueCreated(by, filed.number, draft.title));
+  else lines.push(NEMU.issueDrafted(by, draft.title), NEMU.issuePasteBody);
+  if (draft.duplicate) lines.push(NEMU.maybeDuplicate(draft.duplicate.number, draft.duplicate.title));
   if (!filed.created) lines.push('```md', draft.body.replace(/```/g, "'''").slice(0, 1200), '```');
   return lines.join('\n').slice(0, 2000);
 }
@@ -81,7 +82,7 @@ async function makeIssue(cfg, env, i, fb) {
     const content = resultMessage(draft, filed, by) + (button.length ? '' : `\n${filed.url}`);
     await edit({ content: content.slice(0, 2000), components: button });
   } catch (e) {
-    await edit({ content: `Issue にできなかった…（${String(e.message).slice(0, 300)}）` }).catch(() => {});
+    await edit({ content: NEMU.issueFailed(String(e.message).slice(0, 300)) }).catch(() => {});
   }
 }
 
@@ -91,7 +92,7 @@ export async function interactions(request, env, ctx) {
   if (!ok) return new Response('署名が違う', { status: 401 });
   const i = JSON.parse(body);
   if (i.type === PING) return respond({ type: PONG });
-  if (i.type !== COMMAND) return reply('知らない操作だよ');
+  if (i.type !== COMMAND) return reply(NEMU.unknownCommand);
 
   let cfg;
   try {
@@ -99,9 +100,9 @@ export async function interactions(request, env, ctx) {
   } catch (e) {
     return reply(e.message);
   }
-  if (!cfg.llm) return reply('AI の設定（ANTHROPIC_API_KEY）がまだなので、Issue にできない…');
+  if (!cfg.llm) return reply(NEMU.noLlm);
   const fb = feedbackFrom(i);
-  if (!fb || !fb.text.trim()) return reply('Issue にする文が無いよ');
+  if (!fb || !fb.text.trim()) return reply(NEMU.noText);
 
   // Discord は3秒以内の返事を待つので、先に「考え中…」を返し、続きは裏でやる
   ctx.waitUntil(makeIssue(cfg, env, i, fb));

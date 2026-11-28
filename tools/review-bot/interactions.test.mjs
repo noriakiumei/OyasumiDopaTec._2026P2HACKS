@@ -111,8 +111,8 @@ test('メッセージを「Issue にする」と、AI が整えて起票し、�
   // 返事
   const edit = webhookEdits.at(-1);
   assert.equal(edit.token, 'tok-msg');
-  assert.match(edit.body.content, /Issue にしたよ（こうのすけ が依頼）：\*\*#40 /);
-  assert.match(edit.body.content, /似た Issue があるかも：#7/);
+  assert.match(edit.body.content, /Issue にしたよ！⚡（こうのすけ から）：\*\*#40 /);
+  assert.match(edit.body.content, /似た Issue がもうあるかも👀：#7/);
   assert.deepEqual(edit.body.allowed_mentions, { parse: [] });
   assert.equal(edit.body.components[0].components[0].url, 'https://github.com/noriakiumei/OyasumiDopaTec._2026P2HACKS/issues/40');
 });
@@ -132,7 +132,7 @@ test('/issue で書いた文も Issue にできる。GITHUB_TOKEN が無けれ�
   assert.equal(ghRequests.filter((x) => x.key.startsWith('POST')).length, before); // 起票はしない
   const edit = webhookEdits.at(-1);
   assert.equal(edit.token, 'tok-slash');
-  assert.match(edit.body.content, /下書きを作ったよ（iuti が依頼）：\*\*音を消せるようにする\*\*/);
+  assert.match(edit.body.content, /下書きできたよ（iuti から）：\*\*音を消せるようにする\*\*/);
   assert.match(edit.body.content, /```md\n### 何が起きたか/);
   assert.ok(!edit.body.content.includes('似た Issue'));
   const url = new URL(edit.body.components[0].components[0].url);
@@ -144,7 +144,7 @@ test('/issue で書いた文も Issue にできる。GITHUB_TOKEN が無けれ�
 test('AI が失敗したら、その旨に書き換える。API キーが無ければすぐ断る', async () => {
   llm.reply = () => ({ status: 400, json: { type: 'error' } });
   await send(messageCommand('なにか', 'tok-fail'));
-  assert.match(webhookEdits.at(-1).body.content, /Issue にできなかった…（LLM .* 400/);
+  assert.match(webhookEdits.at(-1).body.content, /Issue にできなかった（LLM .* 400/);
   const res = await send(messageCommand('なにか'), { e: { ...env, ANTHROPIC_API_KEY: '' } });
   const body = await res.json();
   assert.equal(body.type, 4);

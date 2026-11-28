@@ -29,6 +29,10 @@ Claude でも Codex でも、MCP が使えるエージェントなら同じよ�
 - Issue の無い PR（docs だけの変更など）は、`request_review` のときに `PR #13 タイトル` のスレッドが立つ
 - Actions の「NEMU（Issue のスレッド）」を手動で動かすと、開いている Issue のスレッドをまとめて立てる
 
+## ネムの口調
+
+NEMU はチームのマスコット「ネム」として書く（眠そうだけどドーパミン全開、決め台詞「これデプロイしたら寝るから……！」）。決まった文と、AI に渡すキャラ設定は `voice.mjs` にまとめてある。口調を変えるときはそこだけ直す。GitHub の Issue 本文など作業用の文は、ふつうの書き方のまま。
+
 ## AI（LLM）の機能
 
 Worker に `ANTHROPIC_API_KEY` を入れると使える。無ければ AI の機能だけが止まり、ほかは今までどおり動く。モデルとお金の目安は `docs/decisions/010-llm-in-review-bot.md`。

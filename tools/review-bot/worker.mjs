@@ -11,6 +11,7 @@
 
 import { handle } from './core.mjs';
 import { interactions, registerCommands } from './interactions.mjs';
+import { NEMU } from './voice.mjs';
 
 function sameKey(a, b) {
   if (!a || !b || a.length !== b.length) return false;
@@ -47,7 +48,7 @@ export default {
       }
     }
     if (url.pathname === '/') {
-      return new Response('review-bot（レビュー依頼ボット）は動いているよ。MCP は /mcp/<鍵> で使ってね。\n', {
+      return new Response(NEMU.alive, {
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
       });
     }

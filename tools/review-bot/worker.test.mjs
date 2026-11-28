@@ -76,7 +76,7 @@ test('Bearer の鍵でレビューを頼むと、偽の Discord にスレッド�
   );
   const r = JSON.parse((await res.json()).result.content[0].text);
   assert.equal(r.created, true);
-  assert.match(sent.at(-1).content, /^<@111> レビューをお願い！/);
+  assert.match(sent.at(-1).content, /^<@111> レビューおねがい〜！⚡/);
 });
 
 test('まとめて送ると、まとめて返る', async () => {

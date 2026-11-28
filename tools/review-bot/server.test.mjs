@@ -82,7 +82,7 @@ test('レビューを頼むと、メンション付きでスレッドができ�
   assert.equal(r.thread_url, `https://discord.com/channels/${GUILD}/${r.thread_id}`);
   threadId = r.thread_id;
   const first = sent.at(-1);
-  assert.match(first.content, /^<@111> レビューをお願い！（chico より）\n/);
+  assert.match(first.content, /^<@111> レビューおねがい〜！⚡（chico より）\n/);
   assert.ok(first.content.includes(PR));
   assert.deepEqual(first.allowed_mentions, { users: ['111'] });
   assert.equal(channels.get(threadId).name, 'PR #99 ログイン画面');
@@ -160,14 +160,14 @@ test('PR をつなぐと名前に PR 番号が付き、PR の URL でもその�
   const l = await call('link_pr', { url: PR21, title: 'ガチャ画面を作る', author: 'iuti', issues: ['20', '999'] });
   assert.deepEqual(l.linked.map((x) => x.thread_id), [issueThread]);
   assert.equal(channels.get(issueThread).name, '#20 ガチャを引く画面（PR #21）');
-  assert.match(sent.at(-1).content, /PR #21 ができたよ/);
+  assert.match(sent.at(-1).content, /PR #21 きたー！⚡/);
   const before = sent.length;
   await call('link_pr', { url: PR21, issues: ['20'] }); // 2回つないでも書かない
   assert.equal(sent.length, before);
   const r = await call('request_review', { to: ['iuti'], title: 'ガチャ画面を作る', url: PR21, message: '見てね' });
   assert.equal(r.created, false);
   assert.equal(r.thread_id, issueThread);
-  assert.match(sent.at(-1).content, /^<@111> レビューをお願い！/);
+  assert.match(sent.at(-1).content, /^<@111> レビューおねがい〜！⚡/);
   // タイトルが変わっても PR 番号は残る
   await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ', state: 'open', action: 'edited' });
   assert.equal(channels.get(issueThread).name, '#20 ガチャ（PR #21）');
@@ -195,7 +195,7 @@ test('Issue を閉じるとスレッドも閉じ、開き直すと開く', async
   const o = await call('sync_issue', { url: `${REPO}/issues/20`, title: 'ガチャ', state: 'open', action: 'reopened' });
   assert.equal(o.action, 'reopened');
   assert.equal(channels.get(issueThread).thread_metadata.archived, false);
-  assert.match(sent.at(-1).content, /開き直された/);
+  assert.match(sent.at(-1).content, /開き直された！ネムも起きた/);
   const none = await call('sync_issue', { url: `${REPO}/issues/77`, title: '閉じたまま', state: 'closed' });
   assert.equal(none.action, 'none');
 });
