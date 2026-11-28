@@ -9,7 +9,7 @@ Claude でも Codex でも、MCP が使えるエージェントなら同じよ�
 
 | 道具 | すること |
 |---|---|
-| `request_review` | 呼ぶ人（GitHub のログイン名か `all`）・PR や Issue の URL・試し方と見てほしいことを渡すと、その件のスレッドでメンションする。PR なら、つながっている Issue のスレッドに書く。スレッドが無ければ立てる |
+| `request_review` | 呼ぶ人（GitHub のログイン名か `all`）・PR や Issue の URL・試し方と見てほしいことを渡すと、その件のスレッドでメンションする。PR なら、つながっている Issue のスレッドに書く。スレッドが無ければ立てる。PR なら差分を AI が3行に要約して添える（`summarize: false` で止める） |
 | `read_replies` | スレッドの人の返信を古い順に読む。`after` に前回の `last_id` を渡すと続きだけ |
 | `post_to_thread` | スレッドに書く（直したことの報告など）。`mention` で通知もできる |
 | `close_review` | 一言書いてスレッドを閉じる |
@@ -27,6 +27,14 @@ Claude でも Codex でも、MCP が使えるエージェントなら同じよ�
 - PR が開く → 本文の `Closes #12` から Issue のスレッドを見つけ、PR ができたことを書き、名前を `#12 タイトル（PR #13）` にする。以後 PR の URL でもこのスレッドが見つかる
 - Issue の無い PR（docs だけの変更など）は、`request_review` のときに `PR #13 タイトル` のスレッドが立つ
 - Actions の「NEMU（Issue のスレッド）」を手動で動かすと、開いている Issue のスレッドをまとめて立てる
+
+## AI（LLM）の機能
+
+Worker に `ANTHROPIC_API_KEY` を入れると使える。無ければ AI の機能だけが止まり、ほかは今までどおり動く。モデルとお金の目安は `docs/decisions/010-llm-in-review-bot.md`。
+
+- **レビュー依頼の要約**：`request_review` に PR の URL を渡すと、差分を読んで「変わったこと・見てほしいところ・試し方」を3行にして依頼文の先頭に添える。要約に失敗しても依頼は届く（結果の `summary_error` に理由）
+
+使ったトークン数は、呼ぶたびに Cloudflare のログ（Workers → oyasumi-review-bot → Logs）に出る。
 
 使うには、リポジトリのシークレット `NEMU_URL` に NEMU の URL（鍵入り）を入れる（Settings → Secrets and variables → Actions。リポジトリの管理者だけができる）。無いあいだは何もしない。フォークから出した PR もつながる（`pull_request_target` で受けるので、シークレットが渡る）。このワークフローは `main` にある版で動くので、マージした後に効く。
 
@@ -69,6 +77,14 @@ Discord ではスレッドを別のチャンネルに移せないので、1つ�
 | `DISCORD_MEMBERS` | `{"GitHub のログイン名": "Discord のユーザー ID", …}` |
 | `ACCESS_KEY` | URL に入れる鍵（長いランダムな文字列）。漏れたら変えて、URL を配り直す |
 
+AI の機能を使うときは、さらに次を入れる。
+
+| 名前 | 中身 |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude の API キー（Secret）。[Claude Console](https://platform.claude.com/) の API Keys で作る |
+| `LLM_MODEL_FAST`・`LLM_MODEL_SMART` | （任意）モデルを変えるとき。既定は `claude-haiku-5-5`・`claude-opus-5-5` |
+| `GITHUB_TOKEN` | （任意）GitHub を読むときに使う。無くても public なリポジトリは読めるが、回数の上限に当たったら入れる |
+
 URL は `https://<Worker の名前>.<アカウント>.workers.dev/mcp/<ACCESS_KEY>`。今の Worker の名前は `oyasumi-review-bot`（`wrangler.toml` と同じ）。鍵入りの URL はオンボーディング資料に書く。
 
 ## 手元で動かす（開発・確認用）
@@ -77,8 +93,8 @@ URL は `https://<Worker の名前>.<アカウント>.workers.dev/mcp/<ACCESS_KE
 
 ## テスト
 
-偽の Discord を相手に、手元版（stdio）とネット上の版（HTTP）を確かめる。
+偽の Discord・偽の Claude API・偽の GitHub を相手に、手元版（stdio）とネット上の版（HTTP）、1ファイル版を確かめる。本物の API は呼ばないので、お金はかからない。
 
 ```bash
-node --test tools/review-bot/server.test.mjs tools/review-bot/worker.test.mjs
+node --test tools/review-bot/*.test.mjs
 ```

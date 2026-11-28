@@ -1,6 +1,10 @@
 // レビュー依頼ボットの中身（Discord と MCP の道具）。手元の stdio 版（server.mjs）とネット上の版（worker.mjs）で共通。
 // Node 専用の機能は使わない（fetch だけ）。
 
+import { llmConfig } from './llm.mjs';
+import { githubConfig, parseGithubUrl } from './github.mjs';
+import { summarizePr } from './pr-summary.mjs';
+
 const FORUM = 15;
 
 // ---------- 設定 ----------
@@ -18,7 +22,14 @@ export function loadConfig(env) {
   }
   // GitHub のログイン名は大文字小文字を区別しないので、小文字でそろえる
   members = Object.fromEntries(Object.entries(members).map(([k, v]) => [k.toLowerCase(), String(v)]));
-  return { token: env.DISCORD_BOT_TOKEN, channelId: env.DISCORD_REVIEW_CHANNEL_ID, members, api: env.DISCORD_API_URL || 'https://discord.com/api/v10' };
+  return {
+    token: env.DISCORD_BOT_TOKEN,
+    channelId: env.DISCORD_REVIEW_CHANNEL_ID,
+    members,
+    api: env.DISCORD_API_URL || 'https://discord.com/api/v10',
+    llm: llmConfig(env), // ANTHROPIC_API_KEY が無ければ null（LLM の機能は使わない）
+    github: githubConfig(env),
+  };
 }
 
 // ---------- Discord API ----------
@@ -75,10 +86,7 @@ async function threads(cfg) {
 }
 
 // GitHub の URL から Issue・PR の番号を読む
-function githubRef(url) {
-  const m = String(url).match(/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/(\d+)/);
-  return m ? { kind: m[1] === 'pull' ? 'pr' : 'issue', number: Number(m[2]) } : null;
-}
+const githubRef = parseGithubUrl;
 
 // スレッド名の決まり：Issue は「#12 タイトル」、PR がつながると「#12 タイトル（PR #13, #14）」、Issue の無い PR は「PR #13 タイトル」
 const PR_SUFFIX = /（PR (#\d+(?:, #\d+)*)）$/;
@@ -165,11 +173,12 @@ async function unarchive(cfg, thread) {
 
 // ---------- 道具 ----------
 
-export function requestText({ ids, kind, title, url, message, from }) {
+export function requestText({ ids, kind, title, url, message, from, summary }) {
   const head = kind === 'consult' ? '相談したいことがあるよ。意見をちょうだい！' : 'レビューをお願い！';
   const by = from ? `（${from} より）` : '';
+  const ai = summary ? ['', '**AI の要約（差分から）**', summary] : [];
   return clip(
-    [`${ids.map((id) => `<@${id}>`).join(' ')} ${head}${by}`, url, '', `**${title}**`, '', message.trim(), '', '返事はこのスレッドに書いてね。AI が読みに来るよ。'].join('\n'),
+    [`${ids.map((id) => `<@${id}>`).join(' ')} ${head}${by}`, url, '', `**${title}**`, ...ai, '', message.trim(), '', '返事はこのスレッドに書いてね。AI が読みに来るよ。'].join('\n'),
     2000,
   );
 }
@@ -227,16 +236,23 @@ const tools = {
         message: { type: 'string', description: '試し方（3手以内）と、見てほしいこと（1〜3点）。返事がほしい期限があれば書く' },
         kind: { type: 'string', enum: ['review', 'consult'], description: 'review = レビュー依頼（既定）、consult = 相談' },
         from: { type: 'string', description: '頼んでいる人（AI を動かしている人の名前など）' },
+        summarize: { type: 'boolean', description: 'PR の差分を AI で3行に要約して添えるか（既定 true。PR の URL のときだけ）' },
       },
       required: ['to', 'title', 'url', 'message'],
     },
     async run(cfg, a) {
       const { ids, found, notFound } = mentionsFor(cfg, a.to || []);
       if (!ids.length) throw new Error(`呼べる人がいない（${notFound.join(', ') || '空'}）。呼べる人: ${Object.keys(cfg.members).join(', ')}`);
-      const content = requestText({ ids, kind: a.kind, title: a.title, url: a.url, message: a.message, from: a.from });
+      const ref = githubRef(a.url);
+      // 要約に失敗しても、依頼そのものは送る
+      let summary = null;
+      let summaryError;
+      if (ref?.kind === 'pr' && cfg.llm && a.summarize !== false) {
+        summary = await summarizePr(cfg, ref).catch((e) => ((summaryError = e.message), null));
+      }
+      const content = requestText({ ids, kind: a.kind, title: a.title, url: a.url, message: a.message, from: a.from, summary });
       const allowed_mentions = { users: ids };
       const ch = await channel(cfg);
-      const ref = githubRef(a.url);
       let thread = await findThreadByUrl(cfg, a.url);
       if (!thread && ref?.kind === 'pr' && a.issue) {
         thread = await linkPr(cfg, { number: ref.number, url: a.url, issues: [a.issue] }).then((r) => r[0] || null);
@@ -256,6 +272,8 @@ const tools = {
         created,
         mentioned: found,
         not_found: notFound,
+        summary,
+        ...(summaryError ? { summary_error: summaryError } : {}),
         next: 'thread_url を PR・Issue のコメントに書いておく。返事は read_replies で読む。',
       };
     },
