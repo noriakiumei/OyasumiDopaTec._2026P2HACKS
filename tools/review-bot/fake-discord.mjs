@@ -66,7 +66,13 @@ export const discord = createServer(async (req, res) => {
   if ((m = p.match(/^\/channels\/(\d+)$/))) {
     const c = channels.get(m[1]);
     if (!c) return send(404, { message: 'Unknown Channel' });
-    if (req.method === 'PATCH') Object.assign(c.thread_metadata, body);
+    if (req.method === 'PATCH') {
+      if (body.name !== undefined) {
+        if (c.thread_metadata.archived) return send(400, { message: 'Thread is archived' });
+        c.name = body.name;
+      }
+      if (body.archived !== undefined) c.thread_metadata.archived = body.archived;
+    }
     return send(200, c);
   }
   send(404, { message: `偽の Discord に無い: ${req.method} ${p}` });
