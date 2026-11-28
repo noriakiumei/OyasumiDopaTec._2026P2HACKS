@@ -4,6 +4,7 @@
 import { llmConfig } from './llm.mjs';
 import { githubConfig, parseGithubUrl } from './github.mjs';
 import { summarizePr } from './pr-summary.mjs';
+import { postDigest } from './digest.mjs';
 
 const FORUM = 15;
 
@@ -29,6 +30,7 @@ export function loadConfig(env) {
     api: env.DISCORD_API_URL || 'https://discord.com/api/v10',
     llm: llmConfig(env), // ANTHROPIC_API_KEY が無ければ null（LLM の機能は使わない）
     github: githubConfig(env),
+    digestChannelId: env.DISCORD_DIGEST_CHANNEL_ID || null, // 無ければフォーラムの「ダイジェスト」スレッドに書く
   };
 }
 
@@ -215,6 +217,9 @@ async function linkPr(cfg, { number, url, title, author, issues }) {
   }
   return linked;
 }
+
+// LLM の機能のファイル（digest.mjs など）に渡す、Discord を触る関数
+const kit = { discord, channel, threads, createThread, say, unarchive, githubLogin, threadUrl };
 
 const tools = {
   request_review: {
@@ -424,6 +429,22 @@ const tools = {
     },
   },
 
+  post_digest: {
+    description: () =>
+      'チーム全体へのお知らせ（朝夕のダイジェスト、放置ブランチ・Issue の見回り結果など）を Discord のダイジェストの場所に書く。' +
+      '文は呼ぶ側が作る（NEMU は AI を使わず、そのまま書く）。事実だけを短く、Issue・PR は「#12 タイトル」とリンクで書く。' +
+      '文の中の @GitHubログイン名 は Discord の名前になる（通知はしない）。2000文字まで。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: '見出し（例：11/28 朝のダイジェスト）' },
+        content: { type: 'string', description: '書く文（Markdown、2000文字まで）' },
+      },
+      required: ['content'],
+    },
+    run: (cfg, a) => postDigest(cfg, kit, a),
+  },
+
   list_reviews: {
     description: () => '開いているレビュー依頼スレッドの一覧。どの PR・Issue の件か（url）と、最後の投稿の ID を返す。',
     inputSchema: { type: 'object', properties: {} },
@@ -447,6 +468,8 @@ const tools = {
 };
 
 // ---------- MCP（JSON-RPC 2.0） ----------
+
+const READ_ONLY = new Set(['read_replies', 'list_reviews']);
 
 const INSTRUCTIONS =
   '人の確認が要るときに、Discord でその人に直接知らせて、返事を受け取るための道具。' +
@@ -473,7 +496,15 @@ export async function handle(msg, env) {
     try {
       cfg = loadConfig(env);
     } catch {}
-    return ok({ tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description(cfg), inputSchema: t.inputSchema })) });
+    // annotations：読むだけの道具を知らせる（ChatGPT などが確認を挟むかどうかの手がかりにする）
+    return ok({
+      tools: Object.entries(tools).map(([name, t]) => ({
+        name,
+        description: t.description(cfg),
+        inputSchema: t.inputSchema,
+        annotations: { readOnlyHint: READ_ONLY.has(name), destructiveHint: false, openWorldHint: true },
+      })),
+    });
   }
   if (method === 'tools/call') {
     const tool = tools[params?.name];

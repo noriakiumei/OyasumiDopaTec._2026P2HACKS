@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 
 // 読まれる側を先に並べる。最後が Worker の入り口
-const FILES = ['llm.mjs', 'github.mjs', 'pr-summary.mjs', 'feedback.mjs', 'core.mjs', 'interactions.mjs', 'worker.mjs'];
+const FILES = ['llm.mjs', 'github.mjs', 'pr-summary.mjs', 'feedback.mjs', 'digest.mjs', 'core.mjs', 'interactions.mjs', 'worker.mjs'];
 
 const varName = (f) => `__${f.replace(/\W/g, '_')}`;
 
