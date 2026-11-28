@@ -5,7 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import worker from './worker.mjs';
-import { FORUM_ID, APP_ID, webhookEdits, discord, channels, messages } from './fake-discord.mjs';
+import { FORUM_ID, APP_ID, webhookEdits, webhookPosts, discord, channels, messages } from './fake-discord.mjs';
 import { anthropic, githubApi, llm, llmRequests, ghRoutes, ghRequests, listen } from './fake-apis.mjs';
 
 const KEY = 'test-access-key-1234567890';
@@ -96,7 +96,7 @@ test('署名が違うと 401、PING には PONG', async () => {
 test('メッセージを「Issue にする」と、AI が整えて起票し、返事を書き換える（GITHUB_TOKEN あり）', async () => {
   llm.reply = () => draft;
   const res = await send(messageCommand('ガチャ引いたら結果が真っ白 @everyone'), { e: { ...env, GITHUB_TOKEN: 'gh-test' } });
-  assert.deepEqual(await res.json(), { type: 5 }); // まず「考え中…」
+  assert.deepEqual(await res.json(), { type: 5, data: { flags: 64 } }); // まず「考え中…」。押した人だけに見える
 
   // 上位モデルに、開いている Issue（PR は除く）・スレッドの Issue・前後の会話・感想を渡した
   const { body } = llmRequests.at(-1);
@@ -130,6 +130,13 @@ test('メッセージを「Issue にする」と、AI が整えて起票し、�
   assert.match(edit.body.content, /似た Issue がもうあるかも👀：#7/);
   assert.deepEqual(edit.body.allowed_mentions, { parse: [] });
   assert.equal(edit.body.components[0].components[0].url, 'https://github.com/noriakiumei/OyasumiDopaTec._2026P2HACKS/issues/40');
+
+  // みんなには一言だけ（プレビューなしのリンク、メンションなし）
+  const post = webhookPosts.at(-1);
+  assert.equal(post.token, 'tok-msg');
+  assert.equal(post.body.content, `📝 梅 の感想から Issue を立てたよ：[#40 ${draft.title}](<https://github.com/noriakiumei/OyasumiDopaTec._2026P2HACKS/issues/40>)`);
+  assert.equal(post.body.flags, undefined);
+  assert.deepEqual(post.body.allowed_mentions, { parse: [] });
 });
 
 test('/issue で書いた文も Issue にできる。GITHUB_TOKEN が無ければ、作成ページのボタンと本文を返す', async () => {
@@ -145,6 +152,7 @@ test('/issue で書いた文も Issue にできる。GITHUB_TOKEN が無けれ�
     data: { type: 1, name: 'issue', options: [{ name: 'text', type: 3, value: '音うるさいから消したい' }] },
   });
   assert.equal(ghRequests.filter((x) => x.key.startsWith('POST')).length, before); // 起票はしない
+  assert.ok(!webhookPosts.some((x) => x.token === 'tok-slash'), '下書きだけのときは、みんなには何も出さない');
   const edit = webhookEdits.at(-1);
   assert.equal(edit.token, 'tok-slash');
   assert.match(edit.body.content, /下書きできたよ（iuti から）：\*\*音を消せるようにする\*\*/);

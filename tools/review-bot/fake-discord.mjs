@@ -11,6 +11,7 @@ export const messages = new Map(); // チャンネル ID → メッセージの�
 export const sent = []; // 送られたメッセージ（allowed_mentions を確かめる）
 export const APP_ID = '555';
 export const webhookEdits = []; // コマンドの返事の書き換え（{ token, body }）
+export const webhookPosts = []; // コマンドの追いの投稿（{ token, body }）
 export let commands = [];
 
 export function addMessage(channelId, author, body) {
@@ -41,6 +42,11 @@ export const discord = createServer(async (req, res) => {
     if (m[1] !== APP_ID) return send(404, { message: 'Unknown Webhook' });
     webhookEdits.push({ token: m[2], body });
     return send(200, { id: '1', ...body });
+  }
+  if ((m = p.match(/^\/webhooks\/(\d+)\/([^/]+)$/)) && req.method === 'POST') {
+    if (m[1] !== APP_ID) return send(404, { message: 'Unknown Webhook' });
+    webhookPosts.push({ token: m[2], body });
+    return send(200, { id: '2', ...body });
   }
   if (req.headers.authorization !== 'Bot test-token') return send(401, { message: 'Unauthorized' });
   if (req.method === 'GET' && p === '/applications/@me') return send(200, { id: APP_ID, name: 'NEMU.' });
