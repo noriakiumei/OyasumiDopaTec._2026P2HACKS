@@ -5,6 +5,7 @@ import { llmConfig } from './llm.mjs';
 import { githubConfig, parseGithubUrl } from './github.mjs';
 import { summarizePr } from './pr-summary.mjs';
 import { postDigest } from './digest.mjs';
+import { splitIssue } from './split.mjs';
 import { NEMU } from './voice.mjs';
 
 const FORUM = 15;
@@ -220,7 +221,7 @@ async function linkPr(cfg, { number, url, title, author, issues }) {
 }
 
 // LLM の機能のファイル（digest.mjs など）に渡す、Discord を触る関数
-const kit = { discord, channel, threads, createThread, say, unarchive, githubLogin, threadUrl };
+const kit = { discord, channel, threads, findIssueThread, createThread, say, unarchive, githubLogin, threadUrl };
 
 const tools = {
   request_review: {
@@ -444,6 +445,24 @@ const tools = {
       required: ['content'],
     },
     run: (cfg, a) => postDigest(cfg, kit, a),
+  },
+
+  split_issue: {
+    description: () =>
+      '大きい Issue を、1 PR で終わる大きさのサブタスクに分ける案を AI が作る（見積もり・順番・担当候補つき）。提案だけで、サブ Issue は作らない。' +
+      'Issue の Discord スレッドにネムが一言書く。GITHUB_TOKEN が無ければ comment_url が null なので、返ってきた comment を呼んだ側が Issue にコメントする。' +
+      'ふだんは「分解」ラベルで GitHub Actions が呼ぶ。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Issue の URL' },
+        title: { type: 'string', description: 'Issue のタイトル（無ければ GitHub から読む）' },
+        body: { type: 'string', description: 'Issue の本文（無ければ GitHub から読む）' },
+        team: { type: 'object', description: 'チームの状況（開いている Issue と担当、最近の PR と作った人など）。担当候補を選ぶのに使う' },
+      },
+      required: ['url'],
+    },
+    run: (cfg, a) => splitIssue(cfg, kit, a),
   },
 
   list_reviews: {

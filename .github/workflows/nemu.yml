@@ -1,6 +1,7 @@
 # Issue ごとの Discord スレッドを、レビュー依頼ボット NEMU（tools/review-bot）に立ててもらう。
 # - Issue が開く・タイトルが変わる・閉じる・開き直す → スレッドを合わせる（sync_issue）
 # - PR が開く・本文が変わる → 本文の Closes #番号 の Issue のスレッドに PR をつなぐ（link_pr）
+# - Issue に「分解」ラベルが付く → AI がサブタスクの案を作り（split_issue）、Issue にコメントしてラベルを外す
 # - 手動で動かす → 今開いている Issue のスレッドをまとめて立てる
 # リポジトリのシークレット NEMU_URL（NEMU の URL、鍵入り）が要る。無ければ何もしない。
 # PR は pull_request_target で受ける。フォークからの PR でもシークレットが渡り、スレッドにつながる。
@@ -11,14 +12,15 @@ name: NEMU（Issue のスレッド）
 
 on:
   issues:
-    types: [opened, edited, closed, reopened]
+    types: [opened, edited, closed, reopened, labeled]
   pull_request_target:
     types: [opened, edited, reopened]
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: read
+  issues: write # 「分解」の案をコメントし、ラベルを外す
+  pull-requests: read
 
 concurrency:
   group: nemu-${{ github.event.issue.number || github.event.pull_request.number || 'all' }}
@@ -51,10 +53,32 @@ jobs:
             if [ "$(echo "$res" | jq '.result.isError == true or has("error")')" = "true" ]; then exit 1; fi
           }
 
+          # 「分解」：Issue とチームの状況を渡して、案を Issue にコメントする
+          decompose() {
+            local n R="repos/$GITHUB_REPOSITORY" args out
+            n=$(jq -r .issue.number "$GITHUB_EVENT_PATH")
+            args=$(jq -n \
+              --slurpfile issue <(jq '.issue | {url: .html_url, title, body: ((.body // "")[0:20000])}' "$GITHUB_EVENT_PATH") \
+              --slurpfile open <(gh api --paginate "$R/issues?state=open&per_page=100" --jq '.[] | {
+                number, title, pr: (.pull_request != null), assignees: [.assignees[].login], labels: [.labels[].name]}') \
+              --slurpfile prs <(gh api "$R/pulls?state=closed&per_page=30" --jq '.[] | select(.merged_at != null) | {
+                number, title, by: .user.login, merged_at}') \
+              '$issue[0] + {team: {open_issues_and_prs: $open, recent_merged_prs: $prs}}')
+            out=$(call split_issue "$args")
+            if [ "$(echo "$out" | jq -r '.comment_url // empty')" = "" ]; then
+              echo "$out" | jq -r .comment | gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body-file -
+            fi
+            gh issue edit "$n" --repo "$GITHUB_REPOSITORY" --remove-label 分解
+          }
+
           issue_args='{url: .html_url, title: .title, state: .state, author: .user.login, body: ((.body // "")[0:2000])}'
 
           case "$GITHUB_EVENT_NAME" in
             issues)
+              if [ "$(jq -r .action "$GITHUB_EVENT_PATH")" = labeled ]; then
+                if [ "$(jq -r .label.name "$GITHUB_EVENT_PATH")" = 分解 ]; then decompose; fi
+                exit 0
+              fi
               call sync_issue "$(jq --arg action "$(jq -r .action "$GITHUB_EVENT_PATH")" ".issue | $issue_args + {action: \$action}" "$GITHUB_EVENT_PATH")"
               ;;
             pull_request_target)
