@@ -28,7 +28,7 @@ Claude でも Codex でも、MCP が使えるエージェントなら同じよ�
 - Issue の無い PR（docs だけの変更など）は、`request_review` のときに `PR #13 タイトル` のスレッドが立つ
 - Actions の「NEMU（Issue のスレッド）」を手動で動かすと、開いている Issue のスレッドをまとめて立てる
 
-使うには、リポジトリのシークレット `NEMU_URL` に NEMU の URL（鍵入り）を入れる（Settings → Secrets and variables → Actions。リポジトリの管理者だけができる）。無いあいだは何もしない。
+使うには、リポジトリのシークレット `NEMU_URL` に NEMU の URL（鍵入り）を入れる（Settings → Secrets and variables → Actions。リポジトリの管理者だけができる）。無いあいだは何もしない。フォークから出した PR もつながる（`pull_request_target` で受けるので、シークレットが渡る）。このワークフローは `main` にある版で動くので、マージした後に効く。
 
 Discord ではスレッドを別のチャンネルに移せないので、1つのフォーラムで扱う。
 
