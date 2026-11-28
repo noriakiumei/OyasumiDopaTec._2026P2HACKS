@@ -1,0 +1,28 @@
+# PR と main への push で、決まった確認（テスト）を回す。
+# PR のコードを動かすので pull_request で受ける（シークレットは使わない）。
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: NEMU（tools/review-bot）のテスト
+        run: node --test tools/review-bot/*.test.mjs
