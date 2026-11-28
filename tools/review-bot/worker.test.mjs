@@ -88,3 +88,15 @@ test('まとめて送ると、まとめて返る', async () => {
   const body = await res.json();
   assert.deepEqual(body.map((x) => x.id), [10, 11]);
 });
+
+test('ダッシュボードに貼る1ファイル版（bundle.mjs）も、そのまま Worker として動く', async () => {
+  const { bundle } = await import('./bundle.mjs');
+  const code = bundle();
+  assert.ok(!/^import /m.test(code));
+  const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+  const res = await mod.default.fetch(
+    new Request(`https://review-bot.example/mcp/${KEY}`, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) }),
+    env,
+  );
+  assert.equal((await res.json()).result.tools.length, 7);
+});
