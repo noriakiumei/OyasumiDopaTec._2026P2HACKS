@@ -90,7 +90,7 @@ async function contextOf(cfg, fb) {
 }
 
 // みんなに見える一言。リンクの埋め込み（プレビュー）は出さない
-const announce = (author, filed, title) => `📝 ${author} の感想から Issue を立てたよ：[#${filed.number} ${title}](<${filed.url}>)`.slice(0, 2000);
+const announce = (author, filed, title) => NEMU.issueAnnounce(author, filed.number, title, filed.url).slice(0, 2000);
 
 function resultMessage(draft, filed, by) {
   const lines = [];

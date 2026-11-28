@@ -31,6 +31,7 @@ export const NEMU = {
 
   // Discord のコマンド（感想 → Issue）
   issueCreated: (by, n, title) => `📝 Issue にしたよ！⚡（${by} から）：**#${n} ${title}**`,
+  issueAnnounce: (author, n, title, url) => `📝 ${author} の感想から Issue 立てたよ！⚡ [#${n} ${title}](<${url}>)`,
   issueDrafted: (by, title) => `📝 Issue の下書きできたよ（${by} から）：**${title}**`,
   issuePasteBody: 'ボタンから作成ページを開いて、下の本文を貼ってね。（GITHUB_TOKEN があれば、ネムが直接作れるんだけどな〜）',
   maybeDuplicate: (n, title) => `似た Issue がもうあるかも👀：#${n} ${title}`,
