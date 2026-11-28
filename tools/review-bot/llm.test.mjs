@@ -129,3 +129,53 @@ test('DISCORD_DIGEST_CHANNEL_ID があればそのチャンネルに書く。空
   assert.match((await call('post_digest', { content: ' ' }, e)).error, /空/);
   assert.match((await call('post_digest', { content: 'あ'.repeat(2001) }, e)).error, /長すぎる（2001 文字）/);
 });
+
+// ---------- #24 Issue の分解と担当提案 ----------
+
+const plan = {
+  summary: 'ガチャ画面、4つに割ってみたよ⚡',
+  subtasks: [
+    { title: 'ガチャのボタンを置く', what: 'ボタンだけ置く', done: '押すとログが出る', size: 'S', depends_on: [], assignee: '@iuti', why: '担当が少ない' },
+    { title: '結果画面', what: '結果を出す', done: 'スマホで見える', size: 'M', depends_on: [1], assignee: '', why: '' },
+  ],
+  questions: ['演出の長さは何秒？'],
+};
+
+test('分解：AI の案を GitHub のコメント用の文にし、Issue のスレッドにネムが一言書く', async () => {
+  const s = await call('sync_issue', { url: `${REPO}/issues/40`, title: 'ガチャ画面', state: 'open' });
+  llm.reply = () => plan;
+  const team = { open_issues_and_prs: [{ number: 12, title: 'ログイン', assignees: ['noriakiumei'] }], recent_merged_prs: [{ number: 9, title: 'ガチャの素材', by: 'iuti' }] };
+  const r = await call('split_issue', { url: `${REPO}/issues/40`, title: 'ガチャ画面', body: 'ガチャを引けるようにする', team });
+
+  const { body } = llmRequests.at(-1);
+  assert.equal(body.model, 'claude-opus-5-5');
+  assert.match(body.system, /ネム/);
+  assert.match(body.messages[0].content, /チームの GitHub ログイン名：iuti, noriakiumei/);
+  assert.match(body.messages[0].content, /"title":"ログイン","assignees":\["noriakiumei"\]/);
+  assert.match(body.messages[0].content, /<issue number="40" title="ガチャ画面">\nガチャを引けるようにする/);
+
+  assert.equal(r.comment_url, null); // GITHUB_TOKEN が無いので、コメントは呼んだ側が書く
+  assert.equal(r.subtasks, 2);
+  assert.match(r.comment, /^### 🧩 #40 の分け方の提案（NEMU）\n\n1\. \*\*ガチャのボタンを置く\*\*（目安 S：半日まで、担当候補 iuti）\n {3}- やること：ボタンだけ置く/);
+  assert.ok(!r.comment.includes('@iuti')); // GitHub で通知を飛ばさない
+  assert.match(r.comment, /2\. \*\*結果画面\*\*（目安 M：1日くらい）\n.*\n.*\n {3}- 先に終わっている必要があるもの：1/);
+  assert.match(r.comment, /\*\*人に決めてほしいこと\*\*\n- 演出の長さは何秒？/);
+
+  assert.equal(r.thread_url.endsWith(`/${s.thread_id}`), true);
+  const said = messages.get(s.thread_id).at(-1);
+  assert.match(said.content, /^ガチャ画面、4つに割ってみたよ⚡\nサブタスク 2 個の案は Issue のコメントにあるよ：/);
+  assert.deepEqual(said.allowed_mentions, { parse: [] });
+});
+
+test('分解：title が無ければ GitHub から読み、GITHUB_TOKEN があれば NEMU がコメントする', async () => {
+  ghRoutes.set(`GET ${API_REPO}/issues/41`, () => ({ title: '音まわり', body: 'BGM と効果音' }));
+  ghRoutes.set(`POST ${API_REPO}/issues/41/comments`, (req, b) => ({ html_url: `${REPO}/issues/41#issuecomment-1`, body: b.body }));
+  llm.reply = () => plan;
+  const r = await call('split_issue', { url: `${REPO}/issues/41` }, { ...env, GITHUB_TOKEN: 'gh-test' });
+  assert.match(llmRequests.at(-1).body.messages[0].content, /<issue number="41" title="音まわり">\nBGM と効果音/);
+  assert.equal(r.comment_url, `${REPO}/issues/41#issuecomment-1`);
+  const posted = ghRequests.findLast((x) => x.key === `POST ${API_REPO}/issues/41/comments`);
+  assert.equal(posted.body.body, r.comment);
+  assert.equal(r.thread_url, null); // スレッドが無ければ書かない
+  assert.match((await call('split_issue', { url: `${REPO}/pull/41` })).error, /Issue の URL ではない/);
+});
