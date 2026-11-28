@@ -4,10 +4,13 @@
 //
 //   POST /mcp/<ACCESS_KEY>   MCP（Streamable HTTP、JSON で返す。SSE は使わない）
 //   POST /mcp                Authorization: Bearer <ACCESS_KEY> でも可
+//   POST /discord/interactions        Discord のコマンド（interactions.mjs）
+//   GET  /discord/setup/<ACCESS_KEY>  Discord にコマンドを登録する
 //
 // 設定（Cloudflare のシークレット）：DISCORD_BOT_TOKEN、DISCORD_REVIEW_CHANNEL_ID、DISCORD_MEMBERS、ACCESS_KEY
 
 import { handle } from './core.mjs';
+import { interactions, registerCommands } from './interactions.mjs';
 
 function sameKey(a, b) {
   if (!a || !b || a.length !== b.length) return false;
@@ -31,8 +34,18 @@ const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === '/discord/interactions' && request.method === 'POST') return interactions(request, env, ctx);
+    const setup = url.pathname.match(/^\/discord\/setup\/([^/]+)$/);
+    if (setup) {
+      if (!sameKey(cleanKey(safeDecode(setup[1])), cleanKey(env.ACCESS_KEY))) return json({ error: '鍵が違う' }, 401);
+      try {
+        return json({ ok: true, ...(await registerCommands(env)) });
+      } catch (e) {
+        return json({ ok: false, error: e.message }, 500);
+      }
+    }
     if (url.pathname === '/') {
       return new Response('review-bot（レビュー依頼ボット）は動いているよ。MCP は /mcp/<鍵> で使ってね。\n', {
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },

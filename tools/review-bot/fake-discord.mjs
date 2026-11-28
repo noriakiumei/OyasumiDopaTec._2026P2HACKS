@@ -9,6 +9,10 @@ let nextId = 1000;
 export const channels = new Map([[FORUM_ID, { id: FORUM_ID, type: 15, guild_id: GUILD, name: 'レビュー依頼' }]]);
 export const messages = new Map(); // チャンネル ID → メッセージの配列
 export const sent = []; // 送られたメッセージ（allowed_mentions を確かめる）
+export const APP_ID = '555';
+export const webhookEdits = []; // コマンドの返事の書き換え（{ token, body }）
+export const webhookPosts = []; // コマンドの追いの投稿（{ token, body }）
+export let commands = [];
 
 export function addMessage(channelId, author, body) {
   const m = { id: String(nextId++), type: 0, author, content: body.content, timestamp: new Date().toISOString(), attachments: [], allowed_mentions: body.allowed_mentions };
@@ -32,8 +36,24 @@ export const discord = createServer(async (req, res) => {
     res.writeHead(code, { 'Content-Type': 'application/json' });
     res.end(data === undefined ? '' : JSON.stringify(data));
   };
-  if (req.headers.authorization !== 'Bot test-token') return send(401, { message: 'Unauthorized' });
   let m;
+  // コマンドの返事の書き換えは、ボットのトークンが無くても通る
+  if ((m = p.match(/^\/webhooks\/(\d+)\/([^/]+)\/messages\/@original$/)) && req.method === 'PATCH') {
+    if (m[1] !== APP_ID) return send(404, { message: 'Unknown Webhook' });
+    webhookEdits.push({ token: m[2], body });
+    return send(200, { id: '1', ...body });
+  }
+  if ((m = p.match(/^\/webhooks\/(\d+)\/([^/]+)$/)) && req.method === 'POST') {
+    if (m[1] !== APP_ID) return send(404, { message: 'Unknown Webhook' });
+    webhookPosts.push({ token: m[2], body });
+    return send(200, { id: '2', ...body });
+  }
+  if (req.headers.authorization !== 'Bot test-token') return send(401, { message: 'Unauthorized' });
+  if (req.method === 'GET' && p === '/applications/@me') return send(200, { id: APP_ID, name: 'NEMU.' });
+  if (req.method === 'PUT' && p === `/applications/${APP_ID}/commands`) {
+    commands = body.map((c, n) => ({ id: String(9000 + n), ...c }));
+    return send(200, commands);
+  }
   if (req.method === 'POST' && p === `/channels/${FORUM_ID}/threads`) {
     const id = String(nextId++);
     const t = { id, type: 11, guild_id: GUILD, parent_id: FORUM_ID, name: body.name, thread_metadata: { archived: false } };
@@ -59,9 +79,17 @@ export const discord = createServer(async (req, res) => {
       sent.push(msg);
       return send(200, msg);
     }
+    const limit = Number(url.searchParams.get('limit') || 50);
+    const all = messages.get(m[1]) || [];
+    const around = url.searchParams.get('around');
+    if (around) {
+      const at = Math.max(0, all.findIndex((x) => x.id === around));
+      const from = Math.max(0, at - Math.floor(limit / 2));
+      return send(200, all.slice(from, from + limit).reverse());
+    }
     const afterId = BigInt(url.searchParams.get('after') || '0');
-    const list = (messages.get(m[1]) || []).filter((x) => BigInt(x.id) > afterId).reverse(); // 新しい順で返す
-    return send(200, list.slice(0, Number(url.searchParams.get('limit') || 50)));
+    const list = all.filter((x) => BigInt(x.id) > afterId).reverse(); // 新しい順で返す
+    return send(200, list.slice(0, limit));
   }
   if ((m = p.match(/^\/channels\/(\d+)$/))) {
     const c = channels.get(m[1]);

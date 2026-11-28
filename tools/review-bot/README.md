@@ -34,6 +34,8 @@ Worker に `ANTHROPIC_API_KEY` を入れると使える。無ければ AI の機
 
 - **レビュー依頼の要約**：`request_review` に PR の URL を渡すと、差分を読んで「変わったこと・見てほしいところ・試し方」を3行にして依頼文の先頭に添える。要約に失敗しても依頼は届く（結果の `summary_error` に理由）
 
+- **感想 → Issue**：Discord のメッセージを右クリック →「アプリ」→「**Issue にする**」か、`/issue 内容:…` で、AI がタイトル・本文（何が起きたか・再現手順など）・ラベルに整えて Issue にする。前後の会話（30 件）と、スレッドがつながっている Issue・PR も読むので、「これ」「さっきの」のような書き方でも意味を補う。結果（下書きや似た Issue）は押した人だけに見え、起票したときだけ、みんなに「〇〇 の感想から Issue を立てたよ」と一言出す。元のメッセージへのリンクと書いた人を本文に残し、似た Issue が開いていれば知らせる。`GITHUB_TOKEN` があれば直接起票し、無ければ作成ページのボタンと本文を返す（下の「Discord のコマンド」の設定が要る）
+
 使ったトークン数は、呼ぶたびに Cloudflare のログ（Workers → oyasumi-review-bot → Logs）に出る。
 
 使うには、リポジトリのシークレット `NEMU_URL` に NEMU の URL（鍵入り）を入れる（Settings → Secrets and variables → Actions。リポジトリの管理者だけができる）。無いあいだは何もしない。フォークから出した PR もつながる（`pull_request_target` で受けるので、シークレットが渡る）。このワークフローは `main` にある版で動くので、マージした後に効く。
@@ -83,9 +85,20 @@ AI の機能を使うときは、さらに次を入れる。
 |---|---|
 | `ANTHROPIC_API_KEY` | Claude の API キー（Secret）。[Claude Console](https://platform.claude.com/) の API Keys で作る |
 | `LLM_MODEL_FAST`・`LLM_MODEL_SMART` | （任意）モデルを変えるとき。既定は `claude-haiku-5-5`・`claude-opus-5-5` |
-| `GITHUB_TOKEN` | （任意）GitHub を読むときに使う。無くても public なリポジトリは読めるが、回数の上限に当たったら入れる |
+| `GITHUB_TOKEN` | （任意）感想を直接 Issue にするときと、GitHub を読むときに使う。読むだけなら無くても public なリポジトリは読める |
+| `DISCORD_PUBLIC_KEY` | Discord のコマンドを受けるとき（下の「Discord のコマンド」） |
+| `GITHUB_REPO` | （任意）Issue を作るリポジトリ。既定は `noriakiumei/OyasumiDopaTec._2026P2HACKS` |
 
 URL は `https://<Worker の名前>.<アカウント>.workers.dev/mcp/<ACCESS_KEY>`。今の Worker の名前は `oyasumi-review-bot`（`wrangler.toml` と同じ）。鍵入りの URL はオンボーディング資料に書く。
+
+### Discord のコマンド（感想 → Issue）
+
+1. Developer Portal の「General Information」にある **Public Key** を、Worker の変数 `DISCORD_PUBLIC_KEY` に入れる（秘密ではないので Secret でなくてよい）。
+2. 同じ画面の **Interactions Endpoint URL** に `https://<Worker の URL>/discord/interactions` を入れて保存する（Discord が試しに送って、通れば保存できる）。
+3. ブラウザで `https://<Worker の URL>/discord/setup/<ACCESS_KEY>` を1回開く。`"ok": true` が出ればコマンドが登録された。コマンドを変えたときも開き直す。
+4. 直接起票させるなら、GitHub の fine-grained トークン（このリポジトリだけ、Issues の Read and write）を Worker の Secret `GITHUB_TOKEN` に入れる。起票した人はトークンの持ち主になる（書いた人は本文に残る）。
+
+コマンドが出てこないときは、招待 URL の scope を `bot%20applications.commands` にしてサーバーに入れ直す。
 
 ## 手元で動かす（開発・確認用）
 
